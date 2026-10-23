@@ -50,6 +50,17 @@ if let i = args.firstIndex(of: "--icon"), i + 1 < args.count {
     exit(0)
 }
 // `--sounds <dir>` writes every sound, three takes each (every take differs), for a listen.
+// Regression check: every sound in every palette, 20 random seeds each. A buffer overrun traps, so reaching the
+// end is the pass (the breath sounds crashed every breathing break until 0.5.3).
+if args.contains("--sound-check") {
+    var n = 0
+    for c in Sound.Cue.allCases {
+        for p in Sound.Palette.allCases { for _ in 0..<20 { _ = Sound.render(c, palette: p, seed: .random(in: 1...UInt64.max)); n += 1 } }
+        for _ in 0..<20 { _ = Sound.render(c, seed: .random(in: 1...UInt64.max)); n += 1 }
+    }
+    for p in Sound.Presence.allCases { for _ in 0..<20 { _ = Sound.render(p, seed: .random(in: 1...UInt64.max)); n += 1 } }
+    print("sound-check: \(n) renders, all passed"); exit(0)
+}
 if let i = args.firstIndex(of: "--sounds"), i + 1 < args.count {
     let dir = URL(fileURLWithPath: args[i + 1])
     for c in Sound.Cue.allCases { for k in 1...3 { try? Sound.wav(Sound.render(c, seed: UInt64(k * 7919))).write(to: dir.appendingPathComponent("new-\(c.rawValue)-\(k).wav")) } }

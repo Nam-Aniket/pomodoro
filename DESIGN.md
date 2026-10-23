@@ -399,3 +399,7 @@ Feedback: "Insights are not at all clear." What made it unclear, on the user's r
 | Active minutes per day (week, month), Last 30 days (month) | Which days? |
 
 Removed: the day timeline strip, the Outcomes placeholder, per-task session counts. Checked on real data (today, week) and an empty folder.
+
+## 21. 0.5.3: the breathing-break crash (24 Oct 2026)
+
+Every breathing break with sound on crashed, from 0.3 to 0.5.2: `Sound.render` wrote the breath sounds (2.4 s in, 4.6 s out) into a buffer sized for 1.9 s, and Swift traps on an out-of-range write. Evidence: a 0.3.0 crash report (23 Oct 15:36, `Model.breathCue` → `Sound.render`, "Index out of range"); the installed 0.5.2's `--sounds` stopped at the inhale with a trap; found by the ad session rendering sounds. Fix: the buffer is sized per cue, and the breath sounds fit the 6 s cycle (in 2.4 s, out 3.4 s). Check: `--sound-check` renders every sound in every palette with 20 random seeds (production seeds are random, so a seed-dependent overrun would show), run by `tools/check.sh` with the logic and performance checks.

@@ -79,8 +79,7 @@ struct UpdateView: View {
                 if !r.notes.isEmpty {
                     Card {
                         ScrollView {
-                            Text((try? AttributedString(markdown: r.notes, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(r.notes))
-                                .font(T.callout()).foregroundStyle(T.ink).frame(maxWidth: .infinity, alignment: .leading)
+                            ReleaseNotes(text: r.notes).frame(maxWidth: .infinity, alignment: .leading)
                         }.frame(maxHeight: 180)
                     }
                 }
@@ -129,4 +128,28 @@ struct UpdateView: View {
             else { stage = .failed; NSWorkspace.shared.open(r.page) }
         }
     }
+}
+
+/// GitHub release notes, line by line: headings, bullets and inline bold or code. (Inline-only parsing showed
+/// "### New" as typed, found in the 0.5.2 update test.)
+struct ReleaseNotes: View {
+    var text: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(Array(text.components(separatedBy: "\n").enumerated()), id: \.offset) { _, raw in
+                let line = raw.trimmingCharacters(in: .whitespaces)
+                if line.hasPrefix("#") {
+                    Text(md(line.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces))).font(T.headline()).foregroundStyle(T.ink).padding(.top, 4)
+                } else if line.hasPrefix("- ") || line.hasPrefix("* ") {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Circle().fill(T.tomato).frame(width: 4, height: 4).offset(y: -2)
+                        Text(md(String(line.dropFirst(2)))).font(T.callout()).foregroundStyle(T.ink).fixedSize(horizontal: false, vertical: true)
+                    }
+                } else if !line.isEmpty {
+                    Text(md(line)).font(T.callout()).foregroundStyle(T.ink).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+    func md(_ s: String) -> AttributedString { (try? AttributedString(markdown: s)) ?? AttributedString(s) }
 }

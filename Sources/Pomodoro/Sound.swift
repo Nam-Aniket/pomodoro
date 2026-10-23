@@ -187,10 +187,15 @@ enum Sound {
 
     static let nasal: [(f: Double, q: Double, g: Double)] = [(260, 5, 1), (1050, 9, 0.18), (2600, 10, 0.05)]
 
+    /// Breath sounds fit the 6 s cyclic sigh: in (with its top-up) 2.4 s, out 3.4 s.
+    static func breathLength(_ cue: Cue) -> Double { cue == .inhale ? 2.4 : cue == .exhale ? 3.4 : 0 }
+
     static func render(_ cue: Cue, seed: UInt64) -> [Float] {
         var rng = RNG(s: seed)
         let p = rng.range(0.96, 1.04)
-        var out = [Float](repeating: 0, count: Int(rate * 1.9))
+        // sized per cue: the breath sounds run longer than 1.9 s, and writing past a 1.9 s buffer crashed every
+        // breathing break with sound on, from 0.3 to 0.5.2 (crash reports 23 and 24 Oct)
+        var out = [Float](repeating: 0, count: Int(rate * max(1.9, breathLength(cue))))
         switch cue {
         case .splash:
             // wet plop, a squelch, then droplets pattering down
@@ -242,7 +247,7 @@ enum Sound {
             return finish(Array(out.prefix(Int(rate * 0.05))), peak: 0.22)
         case .inhale, .exhale:
             // soft breath: airy noise whose brightness rises on the way in and falls on the way out
-            let dur = cue == .inhale ? 2.4 : 4.6
+            let dur = breathLength(cue)
             var lp = Biquad(lowpass: 600)
             for j in 0..<Int(dur * rate) {
                 let t = Double(j) / rate, k = t / dur

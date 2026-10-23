@@ -320,7 +320,7 @@ extension Render {
     @MainActor static func pages(dir: String, to prefix: String) {
         setenv("POMODORO_HOME", dir, 1)
         let m = Model()
-        m.update = Update.Release(version: "0.5.2", notes: "- Tomo stays visible with Stage Manager\n- Smooth breathing, and the vine harvest is back\n- Shortcuts & help", dmg: nil, page: Update.releasesPage)
+        m.update = Update.Release(version: "0.5.2", notes: "**Tomo got lighter.**\n\n### New\n- **Updates** beside Tomo\n- Shortcuts & help\n\n### Fixed\n- Tomo stays visible with Stage Manager", dmg: nil, page: Update.releasesPage)
         let pages: [(String, AnyView, NSSize)] = [("help", AnyView(HelpView(m: m)), NSSize(width: 460, height: 520)),
                                                   ("update", AnyView(UpdateView(m: m, close: {})), NSSize(width: 440, height: 420)),
                                                   ("settings", AnyView(SettingsView(m: m)), NSSize(width: 420, height: 480))]

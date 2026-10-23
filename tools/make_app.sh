@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # The default SDK symlink points at macOS 27, newer than this Swift compiler; 26.5 matches it.
 export SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
-VERSION=$(cat VERSION)
+VERSION=${VERSION_OVERRIDE:-$(cat VERSION)}   # VERSION_OVERRIDE: test builds that pose as an older copy
 BUILD=$(git rev-list --count HEAD 2>/dev/null || echo 1)
 NAME="Pomodoro"; ID=com.aniketnamjoshi.pomodoro
 if [ "${TEST:-0}" = "1" ]; then NAME="Pomodoro Test"; ID=com.aniketnamjoshi.pomodoro.test; NO_INSTALL=1; fi
