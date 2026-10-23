@@ -200,7 +200,7 @@ the user chose both: an app anyone can install and plug their own apps into, and
 
 **The incident.** the user's real use of 0.1.0: it did hide the Viewer and Safari, but it also hid SpeakFit four times in six seconds while he tried to open it (the session was locked to the first study app), and nothing measured whether he was working. He saw no reaction to working, idling or switching.
 
-**Rules now (from his words, relayed 23 Oct):**
+**Rules now (from the user's words, 23 Oct):**
 - **The clock starts with the task, not the app.** Opening HackerSolve, SpeakFit or the Viewer only *arms* Tomo; the clock starts on the app's `phase=start` (a lesson, a job, a SpeakFit session opens), on Other, or on "Start now" in the launcher.
 - **Only active seconds count**, for the session (45 min = 45 *active* minutes) and the day's harvest. Each second: on task (the session's app or its allowed helpers is in front) AND working (input in the last 60 s or a progress ping in the last 3 min) AND on topic (Chrome watcher). Elapsed, idle, off-task and paused seconds are stored too.
 - **Switching study apps follows the task**: same tomato, a new task segment in the store. Study apps are never hidden.
@@ -221,7 +221,7 @@ the user chose both: an app anyone can install and plug their own apps into, and
 | Not working = no input 60 s AND no progress 3 min | Input only (reading a slide would count as idle) |
 | Another study app's task start retags the session | Ending the session (loses the tomato); hiding the app (the incident) |
 | Claude counts as on task for Northstar only | Always on task (it would hide HackerSolve drift into Claude) |
-| Siren stays on Tomo | Centre-screen or screen-edge flash (he didn't choose; the evidence favours a visible way out over a trap) |
+| Siren stays on Tomo | Centre-screen or screen-edge flash (the user didn't choose; the evidence favours a visible way out over a trap) |
 | Chrome: rules + on-device check every 2 s | An AI key or screenshots (D11) |
 | Outcomes in insights (lessons, takes, applications) | Next version: needs each app's outcome extras |
 
@@ -267,3 +267,135 @@ Tested on this Mac (23 Oct 2026, from the dictionaries): Chrome full (Chromium),
 **`tomo` and MCP.** `tomo start "task" [--app NAME]`, `end`, `activity`, `idea "..."`, `status`, `today`, and `tomo mcp`, a local stdio MCP server (tools: get_status, start_session, end_session, park_idea, today_summary). It runs as the user's own process, so it needs no key; nothing listens on the network.
 
 **Works on other Macs.** Minimum macOS 14 (Sonoma): the two-argument `onChange` and `NSApp.activate()` set the floor. Universal binary (Apple silicon and Intel). Ad-hoc signed, not notarized (notarization needs a paid Apple Developer ID), so first launch is right-click → Open.
+
+## 15. Design system (23 Oct 2026 redesign)
+
+Feedback: "Really need to work on the UI... modern and good feel... a light-coloured theme... UX, UI and arrangement of things, sizing, text, everything." His screenshot of Profiles showed a dark system title bar over a white window, sidebar icons that read as empty checkboxes, grey system checkboxes and a clipped "Change" button, a dial whose handle hid a label, clipped help text, dead space, and no type hierarchy.
+
+**Research used.** Apple: a macOS sidebar runs the full window height with a rounded selection; content can run under a transparent title bar (full-size content view) while the traffic lights stay put ([WWDC20 10104](https://developer.apple.com/videos/play/wwdc2020/10104/), [HIG sidebars](https://developer.apple.com/design/human-interface-guidelines/sidebars)). Things 3: white space, bold type and small splashes of colour carry the look ([MacStories review](https://www.macstories.net/reviews/things-3-beauty-and-delight-in-a-task-manager/)). Design-system practice: an 8-point grid, a short type scale, neutrals tinted with the brand hue, dark themes tuned per token rather than inverted.
+
+**Tokens** (Theme.swift; every text colour computed against its background: body text ≥ 4.5:1 in both themes, `ink3` 3.5:1 in light so only for large text and decoration):
+
+| Token | Light | Dark | Use |
+|---|---|---|---|
+| paper | #FBF7F2 | #1A1513 | window background |
+| surface | #FFFFFF | #241D1B | cards |
+| fill | #F4EEE7 | #2E2624 | chips, fields, rows |
+| line | #EAE1D7 | #3A302D | hairlines |
+| ink / ink2 / ink3 | #2B1A17 / #6B5B54 / #8E827B | #F6EEE8 / #C2B5AE / #978A84 | text |
+| tomato | #C8372B | #FF7B6B | accent, primary buttons (white text 5.2:1) |
+| blush | #FFE9E3 | #3A2420 | selection, soft accents |
+| leaf | #2F7A33 | #7BC86A | switches on, positive notes |
+
+Spacing 4 (icon to text only), 8, 12, 16, 24, 32, 48. Type (SF Rounded): display 26 bold, title 20 bold, headline 15 semibold, body 13.5, callout 12.5, caption 11.5, overline 11 bold caps. Radii: controls 8, rows 10, cards 16, panels 20.
+
+**Components:** Card, Overline, PButton (primary, secondary, ghost), PToggle (switch with a leaf-green track), PCheck (rounded tomato check), PChip (pill choice; rows of chips replace every pop-up menu), PField (search and text fields), AppIcon (the app's real icon from Launch Services; a symbol in a blush circle for websites and Other), WindowHeader (title inside the content, below the traffic lights). Windows use `Chrome.style`: full-size content, transparent title bar, hidden title, drag by background, paper background. Appearance is the app's own setting (Match Mac, Light, Dark); Pomodoro never changes the Mac's setting.
+
+**Dial (fixed):** quarter numbers 15, 30, 45 and 60 in a ring outside the rim, so the leaf handle (on the arc, inside the face) can never cover one; a single tomato arc on a quiet track instead of red on pink; ticks pulled to the face edge so "min" never touches them; sideways calyx leaves only, so "60" stays clear.
+
+**Rejected:** keeping system Form controls with a tint (the grey widgets were the complaint); a custom-drawn title bar with fake traffic lights (Apple's guidance is to keep the real ones); a dark-only theme (he asked for light first); a sidebar `List` (its row icons rendered as outlined squares and its selection colour is the system accent, not Tomo's).
+
+## 16. Creating and editing a profile (23 Oct 2026)
+
+Feedback: "No save button if creating a new profile - it hides in plain sight at the bottom." Root cause: New profile wrote a blank "New profile" straight into the list, so there was nothing to save or cancel, and a half-made profile reached the launcher.
+
+**Create is a guided flow; the draft lives only in the window until Save.**
+- Steps: 1 What will you focus on (app, or a browser for websites, then a name) -> 2 Which sites count (browsers only) -> 3 What else may stay open (the focus app shown ticked and locked) -> 4 How long (the dial). Sites come right after the browser because they are part of defining the target, and Save needs at least one; asking for them at step 3 would leave Save disabled for a reason the user has not reached yet.
+- A fixed footer, never in the scroll: Cancel on step 1, Back after it (Apple: Cancel and Back are the leading buttons of a multi-step sheet, and all three of Cancel, Back and Done together should be avoided). Esc cancels at any step. "Save profile" is the primary button on every step, Return triggers it, and while it is disabled a one-line reason sits beside it ("Pick what to focus on first", "Add at least one site", "Give it a name"). Next walks through; every step after 1 has a sensible default, so Save works early.
+- The sidebar dims and locks while a draft is open. On Save the profile is inserted before Other, selected in the sidebar, and appears in the launcher (both read the same list). Zero own profiles shows "No focus profiles yet" with a New profile button.
+- Presented in the window, not a sheet: Apple suggests a separate window rather than a sheet for longer flows on the Mac, and the Profiles window already is that window.
+
+**Edit saves as you go** and says so: a green "Saved" for 2 s after each change. Mac settings apply immediately by convention (Apple's older guidelines: most control panel changes apply immediately); an explicit Save on edits would be the odd one out. Create is explicit because a draft is incomplete by nature.
+
+**Window fix found on the way:** every page window ran its SwiftUI content inside the title bar's safe area while also forcing the window's minimum height, so the bottom 28 pt clipped at minimum size (the new footer was cut in half). Page windows now ignore the safe area and their headers pad for the traffic lights, as section 15 intended.
+
+Sources: Apple HIG Sheets (developer.apple.com/design/human-interface-guidelines/sheets, button roles, multi-step placement, macOS alternatives), Apple HIG Buttons (primary role and Return), Apple HIG Settings (macOS settings windows), Mac OS 8 HIG (control panel changes apply immediately; Escape maps to Cancel).
+
+## 17. Contrast, first open, and the 23 Oct "Tomo disappeared" bug
+
+**Contrast (WCAG 2 AA: 4.5:1 normal text, 3:1 large text and non-text icons).** Feedback: "number color too light". The dial face is always white, but its number used the theme ink, which turns near-white in dark mode (1.15:1). Text on a fixed surface now uses fixed colours. Every pair, computed with the WCAG relative-luminance formula; disabled buttons (45% opacity) are exempt by WCAG and are not listed.
+
+| Colour | Use | On | Light | Dark | Needs |
+|---|---|---|---|---|---|
+| ink | body text | paper | 15.6 | 15.8 | 4.5 |
+| ink | body text | surface | 16.6 | 14.5 | 4.5 |
+| ink | body text | fill | 14.4 | 12.9 | 4.5 |
+| ink | body text | blush | 14.3 | 12.6 | 4.5 |
+| ink2 | secondary text | paper | 6.1 | 9.1 | 4.5 |
+| ink2 | secondary text | surface | 6.5 | 8.3 | 4.5 |
+| ink2 | secondary text | fill | 5.6 | 7.4 | 4.5 |
+| ink2 | secondary text | blush | 5.5 | 7.2 | 4.5 |
+| tomato | links, ghost buttons, icons | paper | 4.9 | 7.1 | 4.5 |
+| tomato | links, ghost buttons, icons | surface | 5.2 | 6.6 | 4.5 |
+| tomato | links, ghost buttons, icons | blush | 4.5 | 5.7 | 4.5 |
+| leaf | "Saved", notes | paper | 5.0 | 8.9 | 4.5 |
+| leaf | "Saved", notes | surface | 5.3 | 8.1 | 4.5 |
+| ink3 | search icons, decoration (non-text) | surface | 3.7 | 5.0 | 3.0 |
+| ink3 | search icons, decoration (non-text) | fill | 3.2 | 4.4 | 3.0 |
+| onTomato | primary button label | tomato | 5.2 | 7.1 | 4.5 |
+| dial number 0x3A1512 | large numeral | white face | 16.2 | 16.2 | 3.0 |
+| dial "min" 0x6B5B54 | label | white face | 6.5 | 6.5 | 4.5 |
+| dial quarter numbers (ink2) | labels | panel paper | 6.1 | 9.1 | 4.5 |
+| old dial number (ink, dark theme) | was | white face | - | 1.15 | 3.0 |
+
+**First open.** Without a session nothing is tracked, so every launch opens the launcher (profiles plus Other, then the dial); the first launch ever (no profiles.json) opens the create-first-profile flow (section 16). Tapping Tomo with no session already opens the launcher. While idle or armed and the person is using the Mac, Tomo says "Not tracking yet. Tap me to pick what you're focusing on." at most every 5 minutes and logs an `untracked` event with the front app (an L0 record). It does not start a session by itself: a session hides other apps, which must stay a choice.
+
+**Live bug: "clicked the lesson, and it jumped to a corner and disappeared".** Evidence: Pomodoro's process was hidden with no on-screen window, Stage Manager is on (`com.apple.WindowManager GloballyEnabled = 1`), and Pomodoro runs as a regular Dock app. Using the 0.5 launcher made Pomodoro the active app; when HackerSolve came forward, Stage Manager swept Pomodoro's window set, Tomo included, into the side strip. Neither Pomodoro's guard nor HackerSolve hides it (checked: self is always allowed; no hide call in HackerSolve). Fix: Tomo's panel has `canJoinAllApplications` (Apple's AppKit header: "commonly used for floating windows and system overlays"), so it joins every app's set. Also: starting a session always fronts Tomo, pulled back onto a screen if it is off every screen, and the start says "Started: <task>, <n> min". Auto-shrink scales Tomo to 62% around its feet inside a panel that never moves.
+
+**Reaction ladder, faster (23 Oct: "reduce the timeline to angry and siren... by 5 to 10 seconds").** Seconds since the trouble began. The reading allowance is unchanged: not working is declared only after 60 s with no input and 180 s with no progress.
+
+| Off task | nudge | hmmph | simmer | boil | siren |
+|---|---|---|---|---|---|
+| Before | 10 | 30 | 60 | 90 | 150 |
+| Now | 10 (glance grace, kept) | 22 | 44 | 66 | 116 |
+
+| Not working (after the allowance) | hmmph | simmer | boil | siren |
+|---|---|---|---|---|
+| Before | 0 | 90 | 180 | 360 |
+| Now | 0 | 80 | 160 | 330 |
+
+## 18. Live-bug pass for 0.5.1 (23 Oct 2026, night)
+
+**No silent starts ("it auto started another session for 45 mins").** Log: emergency exit at 23:35:19; HackerSolve posted `phase=start` for the same lesson at 23:35:43, and Pomodoro started a 45-minute session because any study-app start began a session whenever none was running; the 5-minute pick had been used by the first session. Rule (`Policy.contractStart`, regression checks for each path): a study app's start begins a session only if that profile was picked in the launcher. Otherwise (after an exit, after a break, after just opening the app, day done) Tomo opens the launcher pre-filled with that app and waits for one tap; Start then begins the already-open task at the chosen length. After a break, the tap keeps the last session's length. Every start says "Started: <task>, <n> min".
+
+**A session is locked to its profile (reverses 0.3's "study apps are never hidden; switching retags").** Feedback: "when I open SpeakFit it jumps to that, and then on Northstar it jumps to Northstar." Now another study app is hidden like any app the profile does not allow, its focus events are logged and ignored, and Tomo asks "SpeakFit isn't in this focus. Switch focus to SpeakFit?" with Switch (ends this session, saved, and opens the picker on SpeakFit) or Stay (it stays hidden). Allow a study app in the profile to keep it open.
+
+**Hides that did not stick ("the app hides don't work always").** The log had 11 `hide-retry` entries (Safari, WhatsApp): the first hide, 0.15 s after activation, did not hold, and nothing checked afterwards. Now the front app is checked every second during a session; a non-allowed app is re-hidden and logged as `hide-poll` with the likely cause ("came back after a hide" or "no activation seen"). The safety list (Claude, Terminal, Finder, System Settings and the rest) is never hidden.
+
+**Performance (23 Oct: "when blocking it shouldn't hang the Mac").** Measured with `tools/perf_check.sh` (the real Tomo panel in a click-through window at 1% opacity, release build, this MacBook Air) and `top` on the installed app.
+
+| | Before (0.5.0) | After (0.5.1) |
+|---|---|---|
+| Installed app, paused session, a page window closed earlier | 31-39% CPU | not yet measured live |
+| Tomo panel, calm focus | 7.0% (15 fps), 10.5% (30 fps) | 1.2-1.7% |
+| Tomo panel, idle | about 7% | 0.5-0.7% |
+| An empty animated shape (harness baseline) | 3.4% | 0.6% |
+
+Causes and fixes: (1) closed page windows stayed alive and re-laid themselves out on every model change: they now drop their view on close. (2) SwiftUI `TimelineView` kept the display link awake, about 3% even at 4 fps: a plain timer (`TomoClock`) now drives frames. (3) Tomo drew 15 to 30 frames a second all the time, about 0.35% CPU per frame per second: it now draws only when something moves (30 fps for big moments; 15 for hover, nudges, breaks and speech; in calm focus a still frame plus a 1.2 s burst every 8 s; idle stays still until hovered). (4) The once-a-second tick republished unchanged state, redrawing Tomo every second: it now publishes only on change. Escalation (nudge to siren) still animates at 15 to 30 fps, about 5%, while it lasts. Browser tab reads already ran off the main thread. An app that comes back after 3 re-hides is let be for the session ("hide-gave-up" in the log) instead of a flicker loop. Not yet measured: memory over an hour, and main-thread stalls during a real hide.
+
+**Live drive, 24 Oct 00:12 (0.5.1 installed, recorded to renders/live/051).** Passed: launch opens the picker; HackerSolve plus 5 min armed it; opening a lesson started it with "Started: Lesson 101..., 5 min" and a 300 s target; Tomo stayed visible above HackerSolve with Stage Manager on; SpeakFit, the Viewer and others were hidden at start; opening SpeakFit and then the Viewer mid-session hid each and offered Switch or Stay, and the session stayed HackerSolve; after an emergency exit, reopening the lesson opened the picker instead of starting; live CPU in focus 1.4-5.4% (about 3% average, start bubble included; was 31-39%), memory 36 MB (was 93 MB). Found and fixed after the drive: focus fell to Finder instead of HackerSolve after a hide (macOS 14 cooperative activation: the session app is now brought forward through Launch Services); the picker offered 45 min after a 5-min session (the last length is now remembered per profile); "Nice, Lesson done" was said when no session was running; the pending-task bubble and the Start label were cut off. Breathing: it moved in one-second steps because it ran off the once-a-second tick (now interpolated, with the breath sound fired from the frame clock), cycled every 8 s (now 6 s, 10 breaths a minute), and inflated the whole tomato by 23% (now a 4-6% rise from its base).
+
+## 19. Shipping: updates, help, the installer (24 Oct 2026)
+
+**Updates: notify and download, never replace.** At launch (at most once a day, Settings switch, on by default) and on demand (Help → Check for Updates, the menu bar menu, Settings → Check now), one GET to GitHub's latest-release record; `Update.outcome` reads the tag, notes and `.dmg` asset (offline checks in pomodoro-check). A newer version shows a seed packet with a swaying sprout and a "new" tag beside Tomo, only when no focus session is running; it opens a card with the notes and "Get the new version", which downloads the disk image to Downloads and opens it at the drag step, or opens the release page if the download fails. No silent replacement: the app is not notarised, and a self-replacing unsigned app is what macOS is right to distrust. Copies older than the first release with the checker (0.4.x, 0.5.0, 0.5.1) never learn about updates; their users are told in the release notes.
+
+**Notarisation (the owner's call, later).** Apple's notary service would remove the first-open warning: a notarised app opens with a plain "downloaded from the internet" confirmation, and updates need no Privacy & Security step. It needs a paid Apple Developer Program membership and a Developer ID certificate. Until then the README gives both first-open routes: macOS 15 and later, System Settings → Privacy & Security → Open Anyway (the Control-click shortcut no longer skips it, per Apple's "Safely open apps on your Mac" and reports of the Sequoia change); macOS 14, Control-click → Open.
+
+**Installer.** `RELEASE=1 tools/make_app.sh` builds the release disk image: a 640 x 420 window, the app on the left, Applications on the right, a dashed tomato arrow between, and the first-open step written along the bottom; the background is drawn by the app itself (`--dmg-background`, 1x and 2x) and laid out by Finder on a writable image, then compressed.
+
+**Help.** Shortcuts & Help (menu bar menu, Help menu ⌘?, Settings, `?` on Tomo) lists only controls that exist, the way out first. The first-run profile flow shows ⌃⌥⌘E; the first time a session hides apps, Tomo says "Need out? ⌃⌥⌘E brings every app back." Settings had listed a "⌘S" that never existed; removed.
+
+## 20. Insights, one question per card (24 Oct 2026)
+
+Feedback: "Insights are not at all clear." What made it unclear, on the user's real data: 14 session rows, most "0 active min" (every 2-second retitle was its own row); "Focus quality: active ÷ time in sessions" and "Full harvests" as headline numbers; a 10-hour timeline of unreadable slivers; an empty Outcomes card; and no answer to "what pulled me away?" although the hide log had it. Rule now: each card answers one question, and the answer comes before the chart.
+
+| Card | Question it answers |
+|---|---|
+| Answer line | How did it go? One sentence: active minutes against the goal (or the daily average and the change on the period before), where most went, the biggest leak |
+| Harvest, Active time, Kept on task (Full days on week and month) | How much real work? "Kept on task" says "14 min of 34 min was real work" instead of a ratio |
+| What you worked on | On what? Tasks of a minute or more, top 6; shorter ones counted in the note |
+| Where session time went | What leaked? Working, off task and idle in minutes and percent (paused is not a leak: noted, not barred), the apps Tomo had to hide most, and how often it nudged and sirened |
+| Sessions today (today) | When? Segments of one task under 2 minutes apart joined into one session; under a minute not listed |
+| Active minutes per day (week, month), Last 30 days (month) | Which days? |
+
+Removed: the day timeline strip, the Outcomes placeholder, per-task session counts. Checked on real data (today, week) and an empty folder.

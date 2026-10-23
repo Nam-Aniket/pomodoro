@@ -6,9 +6,9 @@
 
 - **Counts only real work.** The clock fills with *active* minutes: your task's app in front, recent typing or progress, the page on topic. An open window that you're not using doesn't count.
 - **Keeps distractions out, gently.** Other apps are hidden (never quit) while a session runs. Drift and Tomo goes *hmmph*, then simmers, boils, and finally sounds a siren. Get back on track or tap Tomo and it calms down at once.
-- **Breaks that restore you.** Each break starts with guided breathing (cyclic sighing, or box breathing), then real rest while the next tomato regrows and ripens.
+- **Breaks that restore you.** Each break opens with up to a minute of guided breathing (cyclic sighing, or box breathing), then real rest while the next tomato grows on the vine, ripens and hops off.
 - **A daily harvest.** Five tomatoes = 5 × 45 active minutes. Any session length works; the crate fills by minutes. Finishing the day gets a little dance.
-- **Private by design.** Everything stays on your Mac: no account, no network, no API key. Sessions live in a local SQLite file you can export as CSV.
+- **Private by design.** Everything stays on your Mac: no account, no API key. Sessions live in a local SQLite file you can export as CSV. The one network request is an optional daily update check that carries nothing about you.
 
 | ![entrance](docs/media/entrance.gif) | ![5 of 5](docs/media/celebrate.gif) | ![siren](docs/media/siren.gif) |
 |---|---|---|
@@ -16,7 +16,18 @@
 
 ## Install
 
-**Download:** grab `Pomodoro-<version>.dmg` from [Releases](https://github.com/Nam-Aniket/pomodoro/releases), open it, drag Pomodoro to Applications. It is free and not notarized (that needs a paid Apple developer account), so the **first launch is right-click → Open → Open**. Needs macOS 14 (Sonoma) or later; runs natively on Apple silicon and Intel.
+1. Download `Pomodoro-<version>.dmg` from [Releases](https://github.com/Nam-Aniket/pomodoro/releases) and open it.
+2. Drag **Pomodoro** onto **Applications**, then open it from Applications.
+
+   ![The Pomodoro disk image: drag the app onto Applications](docs/media/install-dmg.png)
+
+3. **First open only.** Pomodoro is free and not notarized by Apple (that needs a paid developer account), so macOS asks before the first launch:
+   - **macOS 15 Sequoia and later:** macOS says it can't check the app. Click **Done**, open **System Settings → Privacy & Security**, scroll to **Security**, click **Open Anyway** next to Pomodoro, then **Open Anyway** again and enter your Mac password. The Control-click → Open shortcut no longer skips this on macOS 15 ([Apple: Safely open apps on your Mac](https://support.apple.com/en-us/102445)).
+   - **macOS 14 Sonoma:** Control-click (or right-click) Pomodoro in Applications → **Open** → **Open**. The Privacy & Security → Open Anyway route above works too.
+
+After that it opens normally, and updates install the same way: Pomodoro tells you when a new version is ripe and downloads the disk image for you.
+
+Needs macOS 14 or later; runs natively on Apple silicon and Intel.
 
 **Build it yourself** (needs the Xcode command-line tools):
 
@@ -26,14 +37,31 @@ cd pomodoro
 tools/make_app.sh
 ```
 
+`RELEASE=1 tools/make_app.sh` builds the laid-out release disk image in `dist/` without installing.
+
 ## Use
 
-- **First launch:** pick what you want to focus on. Any app works (VS Code, Notion, Figma...). Pick a **browser** and you can add links instead: paste `github.com/you/repo` and every GitHub page counts, anything else is off track. Tick the few apps allowed to stay open.
-- **Tap Tomo** to start one of your profiles, or *Other* with a typed task. Lengths 15 to 90 minutes.
-- **Hold Tomo 1.5 s** to pause or resume. Quit (⌘Q) remembers your place.
-- **Click the leaves** (⌃⌥⌘I) to park an idea without leaving your task: `~/Documents/Pomodoro/ideas-inbox.md`.
-- **Emergency exit:** ⌃⌥⌘E, the menu, or Quit. Hidden apps come back.
-- **Insights** (⌘I): active time, tomatoes, focus quality, per task; today, week, month. **Focus profiles** from the menu.
+- **First launch:** pick what you want to focus on. Any app works (VS Code, Notion, Figma...). Pick a **browser** and you can add links instead: paste `github.com/you/repo` and every GitHub page counts, anything else is off track. Tick the few apps allowed to stay open, set a default length, and **Save profile**.
+- **Tap Tomo** to pick a profile, or *Other* with a typed task, and twist the tomato timer: 5 to 60 minutes.
+- **A session belongs to its profile.** Open another study app mid-session and Tomo asks: **Switch** focus, or **Stay**. Nothing starts without you choosing it.
+- **Insights** (⌘I): active time, tomatoes, focus quality, per task; today, week, month.
+
+### Shortcuts
+
+| Do this | To |
+|---|---|
+| **⌃⌥⌘E** | Emergency exit: stop the session and bring every hidden app back, from anywhere |
+| ⌘Q | Quit; the session comes back paused next time |
+| ⌃⌥⌘I, or tap Tomo's leaves | Park an idea in `~/Documents/Pomodoro/ideas-inbox.md` |
+| Tap Tomo | Pick what to focus on; start the next session when ripe; calm Tomo when cross |
+| Hold Tomo 1.5 s | Pause or resume |
+| Drag Tomo | Move it |
+| ← → on the timer | Twist it 5 minutes a step |
+| ↩ / esc | Start or save / close or cancel |
+| ⌘, | Settings |
+| ? on Tomo, or Help → Shortcuts & Help (⌘?) | Every shortcut, in the app |
+
+Claude, Terminal, Finder and System Settings are never hidden, and nothing is ever quit.
 
 ## How Tomo knows what you're doing
 
@@ -53,7 +81,9 @@ tools/make_app.sh
 | Whether a mic is in use, and whether the Mac is muted | to stay silent during calls and recordings | none |
 | The address and title of Chrome's front tab, during sessions that allow Chrome | to check the page fits your task (judged on-device by Apple's sentence model) | Automation, asked once by macOS |
 
-Nothing is sent anywhere. Apps that are never hidden: Claude, Terminal, Finder, System Settings, FaceTime, Activity Monitor and every system process.
+| The latest release on GitHub, once a day at most | to tell you when a new version is out | none; turn it off in Settings → Updates |
+
+The update check is a single request to `api.github.com/repos/Nam-Aniket/pomodoro/releases/latest`; it carries no ID, no usage data and nothing about your sessions (details in [PRIVACY.md](docs/PRIVACY.md)). Nothing else is sent anywhere. Apps that are never hidden: Claude, Terminal, Finder, System Settings, FaceTime, Activity Monitor and every system process.
 
 ## Plug in your own app, a script, or an AI tool
 

@@ -41,9 +41,17 @@ do {
     let ev = run(&s, from: t1, seconds: 2100, d)                               // 35 more active minutes
     check(ev.first == .focusEnded(count: 1) && s.phase == .breakTime, "ends at 45 active minutes, not 45 wall minutes")
     check(abs(s.harvest(d) - 1) < 0.01, "one full tomato")
-    check(d.rest(after: 2700) == 600 && d.rest(after: 1800) == 420 && d.rest(after: 600) == 180, "breaks scale: 10, 7, min 3")
+    check(d.rest(after: 2700) == 600 && d.rest(after: 1800) == 420 && d.rest(after: 600) == 120 && d.rest(after: 300) == 60, "breaks scale: 10, 7, 2, 1")
     _ = run(&s, from: at(10), seconds: 600, d)
     check(s.phase == .ready, "break ends into ready, waits for a tap")
+}
+
+// A 5-minute session fills a ninth of a tomato and ends at 5 active minutes.
+do {
+    var s = DayState(day: DayState.dayKey(at(9)))
+    s.startFocus(app: "Other", task: "Quick", target: 300, now: at(9), d)
+    let ev = run(&s, from: at(9), seconds: 300, d)
+    check(ev.first == .focusEnded(count: 1) && abs(s.harvest(d) - 1.0 / 9) < 0.001 && s.rest(d) == 60, "5 min: 1/9 tomato, 1-min break")
 }
 
 // A 30-minute session fills two-thirds of a tomato; 5/5 fires only at 225 active minutes.
@@ -132,10 +140,33 @@ do {
 // The anger ladder (D12 strict, D13 siren) and the not-working rule.
 do {
     typealias L = Ladder
+    // updates: version order, GitHub's answer, once a day
+    for (latest, current, want) in [("v0.5.2", "0.5.1", true), ("0.6.0", "0.5.9", true), ("0.5.10", "0.5.9", true), ("v0.5.1", "0.5.1", false),
+                                    ("0.5", "0.5.0", false), ("0.4.9", "0.5.0", false), ("v0.6.0-beta", "0.5.0", false)] {
+        check(Update.isNewer(latest, than: current) == want, "update: \(latest) newer than \(current) is \(want)")
+    }
+    let rel = Data(#"{"tag_name":"v0.5.2","body":"Fixes","html_url":"https://github.com/Nam-Aniket/pomodoro/releases/tag/v0.5.2","assets":[{"browser_download_url":"https://x/Pomodoro-0.5.2.dmg"}]}"#.utf8)
+    check(Update.outcome(status: 200, body: rel, current: "0.5.1") == .newer(.init(version: "0.5.2", notes: "Fixes", dmg: URL(string: "https://x/Pomodoro-0.5.2.dmg"),
+          page: URL(string: "https://github.com/Nam-Aniket/pomodoro/releases/tag/v0.5.2")!)), "update: a newer release offers its DMG and notes")
+    check(Update.outcome(status: 200, body: rel, current: "0.5.2") == .upToDate, "update: same version is up to date")
+    check(Update.outcome(status: 404, body: Data(), current: "0.5.1") == .upToDate, "update: nothing published is up to date")
+    if case .failed = Update.outcome(status: 403, body: Data(), current: "0.5.1") {} else { check(false, "update: a refused request fails") }
+    check(Update.due(last: nil, now: Date()) && !Update.due(last: Date(), now: Date().addingTimeInterval(3600))
+          && Update.due(last: Date(), now: Date().addingTimeInterval(86_400)), "update: at most once a day")
+    // contract start: only a launcher pick starts a session (regressions from the 23 Oct live run)
+    check(Policy.contractStart(phase: .idle, picked: nil, profile: "HackerSolve") == .ask, "after an emergency exit, a lesson start asks")
+    check(Policy.contractStart(phase: .armed, picked: nil, profile: "HackerSolve") == .ask, "just opening the app does not consent")
+    check(Policy.contractStart(phase: .armed, picked: "HackerSolve", profile: "HackerSolve") == .start, "picked in the launcher starts")
+    check(Policy.contractStart(phase: .armed, picked: "SpeakFit", profile: "HackerSolve") == .ask, "a pick for another app does not start this one")
+    check(Policy.contractStart(phase: .ready, picked: nil, profile: "HackerSolve") == .ask, "after a break, waits for a tap")
+    check(Policy.contractStart(phase: .dayDone, picked: nil, profile: "HackerSolve") == .ask, "day done: asks")
+    check(Policy.contractStart(phase: .breakTime, picked: "HackerSolve", profile: "HackerSolve") == .waitForBreak, "never during a break")
+    check(Policy.contractStart(phase: .focus, picked: nil, profile: "HackerSolve", session: "HackerSolve") == .retag, "mid-session, same app: new task")
+    check(Policy.contractStart(phase: .focus, picked: "SpeakFit", profile: "SpeakFit", session: "HackerSolve") == .ignore, "mid-session, another app's start never moves the session")
     check(L.stage(.offTask, seconds: 5) == .calm && L.stage(.offTask, seconds: 15) == .nudge, "10 s grace, then a nudge")
-    check(L.stage(.offTask, seconds: 45) == .hmmph && L.stage(.offTask, seconds: 75) == .simmer, "hmmph 30 s, simmer 1 min")
-    check(L.stage(.offTask, seconds: 100) == .boil && L.stage(.offTask, seconds: 160) == .siren, "boil 90 s, siren 2.5 min")
-    check(L.stage(.notWorking, seconds: 0) == .hmmph && L.stage(.notWorking, seconds: 200) == .boil && L.stage(.notWorking, seconds: 400) == .siren, "not working: hmmph, boil +3, siren +6")
+    check(L.stage(.offTask, seconds: 21) == .nudge && L.stage(.offTask, seconds: 22) == .hmmph && L.stage(.offTask, seconds: 44) == .simmer, "hmmph 22 s, simmer 44 s")
+    check(L.stage(.offTask, seconds: 65) == .simmer && L.stage(.offTask, seconds: 66) == .boil && L.stage(.offTask, seconds: 116) == .siren, "boil 66 s, siren 116 s")
+    check(L.stage(.notWorking, seconds: 0) == .hmmph && L.stage(.notWorking, seconds: 80) == .simmer && L.stage(.notWorking, seconds: 160) == .boil && L.stage(.notWorking, seconds: 330) == .siren, "not working: hmmph, simmer +80, boil +160, siren +330")
     check(L.isWorking(inputIdle: 30, sinceProgress: 600), "typing counts as working")
     check(L.isWorking(inputIdle: 120, sinceProgress: 60), "a recent slide change counts while reading")
     check(!L.isWorking(inputIdle: 120, sinceProgress: 400), "no input 60 s and no progress 3 min = not working")
@@ -150,7 +181,7 @@ do {
     let gh = Profile(id: "gh", name: "GitHub", kind: .website, domains: ["github.com"], allowed: ["com.apple.Notes"])
     let code = Profile(id: "vs", name: "VS Code", kind: .app, appID: "com.microsoft.VSCode", allowed: ["com.google.Chrome"])
     func may(_ id: String, _ p: Profile?, path: String? = nil, regular: Bool = true, browser: Bool = false) -> Bool {
-        Policy.mayFront(.init(bundleID: id, path: path, isRegular: regular, isBrowser: browser), profile: p, contractTargets: contract)
+        Policy.mayFront(.init(bundleID: id, path: path, isRegular: regular, isBrowser: browser), profile: p)
     }
     func on(_ id: String, _ p: Profile, browser: Bool = false, host: String? = nil) -> Bool {
         Policy.onTask(.init(bundleID: id, isBrowser: browser, host: host), profile: p)
@@ -159,8 +190,11 @@ do {
     check(!may("com.google.Chrome", sf) && !may("com.google.Chrome", hs), "Chrome hidden in SpeakFit and HackerSolve")
     check(may("com.google.Chrome", ns) && may("com.apple.Preview", ns), "Chrome and Preview in Northstar (D4)")
     check(may("com.google.Chrome", .other) && !may("com.apple.Notes", .other), "Other: browsers and Preview")
-    check(may("com.aniketnamjoshi.speakfit", hs) && may("com.aniket.northstar.viewer", sf), "contract apps never hidden (23 Oct incident)")
-    check(may("com.aniketnamjoshi.hackersolve.v111", sf), "copies of a contract app count")
+    check(!may("com.aniketnamjoshi.speakfit", hs) && !may("com.aniket.northstar.viewer", hs), "session locked: other study apps hidden in HackerSolve (23 Oct)")
+    check(!may("com.aniketnamjoshi.hackersolve", sf), "and HackerSolve hidden in SpeakFit")
+    check(may("com.aniketnamjoshi.hackersolve.v111", hs), "copies of the session's own app count")
+    var hsPlus = hs; hsPlus.allowed = ["com.aniketnamjoshi.speakfit"]
+    check(may("com.aniketnamjoshi.speakfit", hsPlus), "a study app the profile allows stays")
     for id in ["com.anthropic.claudefordesktop", "com.apple.Terminal", "com.apple.finder", "com.apple.systempreferences", "com.apple.FaceTime"] {
         check(may(id, sf), "safety: \(id) never hidden")
     }

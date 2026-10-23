@@ -22,9 +22,9 @@ public struct Durations: Codable, Equatable, Sendable {
         self.focus = focus; self.dayGoal = dayGoal; self.perDay = perDay; self.restOverride = restOverride
     }
 
-    /// Breaks scale with the session: 10 min after 45, 7 after 30, never under 3.
+    /// Breaks scale with the session: 10 min after 45, 7 after 30, 1 after 5 (sessions start at 5 minutes).
     public func rest(after target: TimeInterval) -> TimeInterval {
-        restOverride ?? max(180, (target * 10 / 45 / 60).rounded() * 60)
+        restOverride ?? max(60, (target * 10 / 45 / 60).rounded() * 60)
     }
 
     /// One tomato is 45 active minutes, whatever session lengths fill it.
@@ -218,15 +218,15 @@ public enum Ladder {
         public static func < (a: Stage, b: Stage) -> Bool { a.rawValue < b.rawValue }
     }
 
-    /// `seconds` is how long the trouble has lasted. Off task: 10 s grace, nudge, hmmph at 30 s, simmer 1 min,
-    /// boil 90 s, siren 2.5 min. Not working is only declared after 3 quiet minutes, so it starts at hmmph:
-    /// simmer +90 s, boil +3 min (6 min in all), siren +6 min (9 min).
+    /// `seconds` is how long the trouble has lasted. Off task: 10 s grace, nudge, hmmph at 22 s, simmer 44 s,
+    /// boil 66 s, siren 116 s. Not working is only declared after 3 quiet minutes (the reading allowance, unchanged),
+    /// so it starts at hmmph: simmer +80 s, boil +160 s, siren +330 s. (23 Oct: every gap 8 to 10 s shorter.)
     public static func stage(_ t: Trouble, seconds raw: Double) -> Stage {
         let s = raw / timeScale
         switch t {
         case .none: return .calm
-        case .offTask: return s < 10 ? .calm : s < 30 ? .nudge : s < 60 ? .hmmph : s < 90 ? .simmer : s < 150 ? .boil : .siren
-        case .notWorking: return s < 90 ? .hmmph : s < 180 ? .simmer : s < 360 ? .boil : .siren
+        case .offTask: return s < 10 ? .calm : s < 22 ? .nudge : s < 44 ? .hmmph : s < 66 ? .simmer : s < 116 ? .boil : .siren
+        case .notWorking: return s < 80 ? .hmmph : s < 160 ? .simmer : s < 330 ? .boil : .siren
         }
     }
 

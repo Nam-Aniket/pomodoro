@@ -5,17 +5,18 @@ import CoreAudio
 /// Every play draws fresh randomness (pitch about ±4%, timing, which droplets), because a sound that repeats
 /// identically is what makes a creature feel mechanical.
 enum Sound {
-    enum Cue: String, CaseIterable { case splash, ripe, start, nudge, hmmph, simmer, boil, siren, celebrate, park, inhale, exhale }
+    enum Cue: String, CaseIterable { case splash, ripe, start, nudge, hmmph, simmer, boil, siren, celebrate, park, inhale, exhale, tick }
     enum Presence: String, CaseIterable { case hum, pop, rustle }
 
     static let rate = 44_100.0
     nonisolated(unsafe) static var players: [AVAudioPlayer] = []
 
     static func play(_ cue: Cue) {
+        if cue == .tick && (micInUse || systemMuted) { return }   // the tick has no model to ask, so it guards itself
         let seed = UInt64.random(in: 1...UInt64.max)
         play(palette.map { render(cue, palette: $0, seed: seed) } ?? render(cue, seed: seed), gain: 1)
     }
-    static func play(_ p: Presence) { play(render(p, seed: .random(in: 1...UInt64.max)), gain: 0.5) }
+    static func play(_ p: Presence) { play(render(p, seed: .random(in: 1...UInt64.max)), gain: 0.65) }
 
     // MARK: the siren: one continuous wail, looped seamlessly for as long as the siren stage lasts
 
@@ -48,7 +49,7 @@ enum Sound {
         guard sirenPlayer == nil, !UserDefaults.standard.bool(forKey: "soundMuted"),
               let p = try? AVAudioPlayer(data: wav(sirenLoop())) else { return }
         p.numberOfLoops = -1
-        p.volume = Float(UserDefaults.standard.object(forKey: "soundVolume") as? Double ?? 0.35) * 0.8
+        p.volume = Float(UserDefaults.standard.object(forKey: "soundVolume") as? Double ?? 0.7) * 0.8
         p.play(); sirenPlayer = p
     }
 
@@ -57,7 +58,7 @@ enum Sound {
     static func play(_ samples: [Float], gain: Float) {
         let d = UserDefaults.standard
         guard !d.bool(forKey: "soundMuted"), let p = try? AVAudioPlayer(data: wav(samples)) else { return }
-        p.volume = Float(d.object(forKey: "soundVolume") as? Double ?? 0.35) * gain
+        p.volume = Float(d.object(forKey: "soundVolume") as? Double ?? 0.7) * gain
         players.removeAll { !$0.isPlaying }
         players.append(p); p.play()
     }
@@ -234,6 +235,11 @@ enum Sound {
                       formants: [(450, 6, 1), (2000, 9, 0.35), (2800, 10, 0.1)], breath: 0.5, amp: 0.38, rng: &rng)
             }
             for _ in 0..<6 { bubble(&out, at: rng.range(0.1, 1.0), f0: rng.range(900, 1600), tau: 0.025, amp: 0.12) }
+        case .tick:
+            // the dial's detent: a tiny wooden click with a hint of juice
+            bubble(&out, at: 0, f0: 1900 * p, tau: 0.006, amp: 0.5)
+            squelch(&out, at: 0, dur: 0.012, from: 3000, to: 2400, amp: 0.6, rng: &rng)
+            return finish(Array(out.prefix(Int(rate * 0.05))), peak: 0.22)
         case .inhale, .exhale:
             // soft breath: airy noise whose brightness rises on the way in and falls on the way out
             let dur = cue == .inhale ? 2.4 : 4.6

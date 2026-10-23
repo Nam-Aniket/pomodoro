@@ -5,6 +5,26 @@ if let i = args.firstIndex(of: "--sheet"), i + 2 < args.count {
     MainActor.assumeIsolated { Render.sheet(dark: args[i + 1] == "dark", to: URL(fileURLWithPath: args[i + 2])) }
     exit(0)
 }
+if let i = args.firstIndex(of: "--perf") {
+    let secs = i + 1 < args.count ? Double(args[i + 1]) ?? 10 : 10
+    MainActor.assumeIsolated { NSApplication.shared.setActivationPolicy(.accessory); Render.perf(seconds: secs) }
+}
+if let i = args.firstIndex(of: "--dmg-background"), i + 1 < args.count {
+    MainActor.assumeIsolated { Render.dmgBackground(to: args[i + 1]) }
+    exit(0)
+}
+if let i = args.firstIndex(of: "--pages"), i + 2 < args.count {
+    MainActor.assumeIsolated { Render.pages(dir: args[i + 1], to: args[i + 2]) }
+    exit(0)
+}
+if let i = args.firstIndex(of: "--profiles"), i + 2 < args.count {
+    MainActor.assumeIsolated { Render.profiles(dir: args[i + 1], to: args[i + 2]) }
+    exit(0)
+}
+if let i = args.firstIndex(of: "--launcher"), i + 2 < args.count {
+    MainActor.assumeIsolated { Render.launcher(dir: args[i + 1], to: URL(fileURLWithPath: args[i + 2])) }
+    exit(0)
+}
 if let i = args.firstIndex(of: "--reels"), i + 1 < args.count {
     Sound.reels(to: URL(fileURLWithPath: args[i + 1]))
     exit(0)

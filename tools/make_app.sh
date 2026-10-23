@@ -69,6 +69,45 @@ if [ "${NO_INSTALL:-0}" = "1" ]; then echo "Built $NAME $VERSION ($BUILD) at $AP
 
 STAGE=$OUT/dmg; rm -rf "$STAGE"; mkdir -p "$STAGE"; cp -R "$APP" "$STAGE/"; ln -s /Applications "$STAGE/Applications"
 DMG=dist/Pomodoro-$VERSION.dmg; mkdir -p dist; rm -f "$DMG"
+if [ "${RELEASE:-0}" = "1" ]; then
+  # Release disk image: the drag-to-Applications window (app left, Applications right, an arrow between,
+  # the first-open step at the bottom), laid out by Finder on a writable image, then compressed.
+  VOL="Pomodoro $VERSION"; RW=$OUT/rw.dmg; rm -f "$RW"
+  mkdir -p "$STAGE/.background"
+  "$APP/Contents/MacOS/Pomodoro" --dmg-background "$OUT/bg"
+  tiffutil -cathidpicheck "$OUT/bg.png" "$OUT/bg@2x.png" -out "$STAGE/.background/background.tiff" >/dev/null
+  hdiutil create -volname "$VOL" -srcfolder "$STAGE" -ov -format UDRW -fs HFS+ "$RW" >/dev/null
+  DEV=$(hdiutil attach -readwrite -noverify -noautoopen "$RW" | awk '/Apple_HFS/{print $1}')
+  sleep 1
+  osascript <<OSA
+with timeout of 30 seconds
+tell application "Finder"
+  tell disk "$VOL"
+    open
+    set current view of container window to icon view
+    set toolbar visible of container window to false
+    set statusbar visible of container window to false
+    set bounds of container window to {200, 120, 840, 590}   -- 420 pt of background plus the title and status bars
+    set o to the icon view options of container window
+    set arrangement of o to not arranged
+    set icon size of o to 112
+    set text size of o to 13
+    set background picture of o to file ".background:background.tiff"
+    set position of item "Pomodoro.app" of container window to {170, 225}
+    set position of item "Applications" of container window to {470, 225}
+    update without registering applications
+    delay 1
+    close
+  end tell
+end tell
+end timeout
+OSA
+  chmod -Rf go-w "/Volumes/$VOL" 2>/dev/null || true
+  sync; hdiutil detach "$DEV" >/dev/null
+  hdiutil convert "$RW" -format UDZO -imagekey zlib-level=9 -o "$DMG" >/dev/null; rm -f "$RW"
+  hdiutil verify "$DMG" >/dev/null
+  echo "Release disk image: $DMG"; exit 0
+fi
 hdiutil create -volname "Pomodoro $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 hdiutil verify "$DMG" >/dev/null
 

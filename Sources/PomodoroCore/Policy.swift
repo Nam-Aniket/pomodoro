@@ -14,6 +14,18 @@ public enum Policy {
     /// Blocking runs through focus and the break (D3) and stops when paused, ready or idle.
     public static func isGuarding(_ s: DayState) -> Bool { s.isTimed && !s.isPaused }
 
+    /// What a study app's `phase=start` does (23 Oct: "it auto started another session for 45 mins").
+    /// A session never starts silently: only a profile picked in the launcher starts on its app's start.
+    /// Mid-session, only the session's own app may retitle it; another app's start is logged and ignored.
+    public enum StartAction: Equatable, Sendable { case start, retag, ignore, waitForBreak, ask }
+    public static func contractStart(phase: Phase, picked: String?, profile: String, session: String? = nil) -> StartAction {
+        switch phase {
+        case .focus: return session == profile ? .retag : .ignore
+        case .breakTime: return .waitForBreak
+        default: return picked == profile ? .start : .ask
+        }
+    }
+
     /// What is in front right now.
     public struct Front: Sendable {
         public var bundleID: String?, path: String?, isRegular = true, isSelf = false, isBrowser = false
@@ -25,16 +37,14 @@ public enum Policy {
     }
 
     /// May this app stay visible during the session? Hiding is the only action; nothing is ever quit.
-    /// `contractTargets` are the apps of profiles that post the focus contract: they are never hidden, because
-    /// switching to one moves the session (23 Oct incident: 0.1.0 hid SpeakFit four times while the user tried
-    /// to open it).
-    public static func mayFront(_ f: Front, profile: Profile?, contractTargets: [String] = []) -> Bool {
+    /// A session is locked to its profile (23 Oct, reversing 0.3: "when I open SpeakFit it jumps to that"): another
+    /// study app is hidden like any other unless the profile allows it, and Tomo offers to switch focus instead.
+    public static func mayFront(_ f: Front, profile: Profile?) -> Bool {
         if f.isSelf || !f.isRegular { return true }
         guard let id = f.bundleID else { return true }   // ponytail: an app with no bundle id is too odd to touch
         if safety.contains(id) { return true }
         if f.path?.hasPrefix("/System/Library/CoreServices/") == true { return true }
         guard let p = profile else { return true }
-        if contractTargets.contains(where: { id == $0 || id.hasPrefix($0 + ".") }) { return true }
         if p.isTarget(id) || p.allowed.contains(id) { return true }
         if p.kind == .website, f.isBrowser { return p.browsers.isEmpty || p.browsers.contains(id) }
         return false

@@ -55,6 +55,7 @@ extension Sound {
     }
 
     static func render(_ cue: Cue, palette: Palette, seed: UInt64) -> [Float] {
+        if cue == .tick { return render(cue, seed: seed) }
         if palette == .mix && cue != .inhale && cue != .exhale {
             // the voice says how Tomo feels; the juice says what physically happens, a touch quieter underneath
             let a = render(cue, palette: .voice, seed: seed), c = render(cue, palette: .juicy, seed: seed &+ 77)
@@ -117,7 +118,7 @@ extension Sound {
 
         case (.mix, _): return []
         // breath cues stay the same soft air in every palette
-        case (_, .inhale), (_, .exhale): return render(cue, seed: seed)
+        case (_, .inhale), (_, .exhale), (_, .tick): return render(cue, seed: seed)
         }
         return finish(out, peak: 0.5)
     }

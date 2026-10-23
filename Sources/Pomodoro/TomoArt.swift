@@ -20,6 +20,7 @@ struct TomoScene: Equatable {
     var reduceMotion = false     // macOS Reduce Motion: crossfades instead of hops
     var harvestFraction: Double? // tomatoes in the crate by active minutes (2.67 = two full, one two-thirds)
     var breathing = "cyclic"     // cyclic sighing (default) or box
+    var update = false           // a newer version is out: a seed packet with a sprout beside Tomo
 }
 
 extension Color {
@@ -57,6 +58,7 @@ enum TomoArt {
         }
         crate(&g, s.harvestFraction ?? Double(s.harvested), newest: s.mode == .splash ? s.phaseT : nil, glow: s.mode == .dayDone || s.mode == .celebrate,
               wave: s.mode == .celebrate ? s.phaseT : nil, dark: s.dark, t: t)
+        if s.update { sprout(&g, t, dark: s.dark) }
         if s.hold > 0 {
             var ring = Path(); ring.addArc(center: c, radius: r * 1.32, startAngle: .degrees(-90), endAngle: .degrees(-90 + 360 * s.hold), clockwise: false)
             g.stroke(ring, with: .color(Color(hex: 0xFF7A4D)), style: StrokeStyle(lineWidth: 5, lineCap: .round))
@@ -601,24 +603,57 @@ enum TomoArt {
         }
     }
 
+    // MARK: a new version is ripe: a seed packet beside Tomo with a sprout that sways
+
+    static func sprout(_ ctx: inout GraphicsContext, _ t: Double, dark: Bool) {
+        let base = CGPoint(x: 22, y: 168)
+        var g = ctx
+        g.addFilter(.shadow(color: .black.opacity(0.18), radius: 2, y: 1.5))
+        // the packet, a little tilted, with a tomato on its label
+        var p = g; p.translateBy(x: base.x, y: base.y); p.rotate(by: .degrees(-6))
+        let packet = Path(roundedRect: CGRect(x: -14, y: -34, width: 28, height: 34), cornerRadius: 3)
+        p.fill(packet, with: .linearGradient(Gradient(colors: [Color(hex: 0xFFF3DC), Color(hex: 0xF1D9B0)]), startPoint: CGPoint(x: 0, y: -34), endPoint: .zero))
+        p.stroke(Path { q in q.move(to: CGPoint(x: -14, y: -27)); q.addLine(to: CGPoint(x: 14, y: -27)) }, with: .color(Color(hex: 0xC8372B, 0.7)), lineWidth: 1.2)
+        p.fill(Path(ellipseIn: CGRect(x: -7, y: -21, width: 14, height: 13)), with: .radialGradient(red, center: CGPoint(x: -2, y: -18), startRadius: 0, endRadius: 12))
+        p.fill(Path(ellipseIn: CGRect(x: -2, y: -23, width: 4, height: 3)), with: .color(Color(hex: 0x3F8F3A)))
+        // the sprout out of the top, swaying
+        let sway = 0.12 * sin(t * 1.6)
+        var s = g; s.translateBy(x: base.x + 2, y: base.y - 34); s.rotate(by: .radians(sway))
+        var stem = Path(); stem.move(to: .zero); stem.addQuadCurve(to: CGPoint(x: 1, y: -16), control: CGPoint(x: -3, y: -8))
+        s.stroke(stem, with: .color(Color(hex: 0x3F8F3A)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+        for (dx, deg) in [(-1.0, 200.0), (2.0, -20.0)] {
+            var l = s; l.translateBy(x: dx, y: -15); l.rotate(by: .degrees(deg))
+            var leaf = Path(); leaf.move(to: .zero); leaf.addQuadCurve(to: CGPoint(x: 10, y: 0), control: CGPoint(x: 5, y: -5)); leaf.addQuadCurve(to: .zero, control: CGPoint(x: 5, y: 4))
+            l.fill(leaf, with: .linearGradient(leafG, startPoint: .zero, endPoint: CGPoint(x: 10, y: 0)))
+        }
+        // a small "new" tag
+        ctx.fill(Path(roundedRect: CGRect(x: base.x + 3, y: base.y - 8, width: 20, height: 12), cornerRadius: 6), with: .color(Color(hex: 0xC8372B)))
+        ctx.draw(Text("new").font(.system(size: 8.5, weight: .heavy, design: .rounded)).foregroundColor(.white), at: CGPoint(x: base.x + 13, y: base.y - 2))
+    }
+
     // MARK: break, first half: breathe with Tomo
 
-    /// 0...1 lung fullness at `t` seconds. Cyclic sighing (Balban et al. 2023): a long inhale, a short top-up
-    /// inhale, then a long slow exhale, 8 s a cycle. Box breathing: in 4, hold 4, out 4, hold 4.
+    /// Cycle length and when the exhale starts, shared with the breath sounds.
+    static func breathCycle(_ technique: String) -> (cycle: Double, outAt: Double) { technique == "box" ? (16, 8) : (6, 2.5) }
+
+    /// 0...1 lung fullness at `t` seconds. Cyclic sighing (Balban et al. 2023): an inhale, a short top-up
+    /// inhale, then a long slow exhale; 6 s a cycle, 10 breaths a minute (24 Oct: 8 s read as "too slow").
+    /// Box breathing: in 4, hold 4, out 4, hold 4.
     static func breath(_ t: Double, _ technique: String) -> (fill: Double, cue: String) {
         if technique == "box" {
             let k = t.truncatingRemainder(dividingBy: 16)
             return k < 4 ? (ease(k / 4), "breathe in") : k < 8 ? (1, "hold") : k < 12 ? (1 - ease((k - 8) / 4), "breathe out") : (0, "hold")
         }
-        let k = t.truncatingRemainder(dividingBy: 8)
-        return k < 2.2 ? (0.8 * ease(k / 2.2), "breathe in") : k < 3 ? (0.8 + 0.2 * ease((k - 2.2) / 0.8), "a little more")
-            : (1 - easeOut((k - 3) / 5), "and out, slowly")
+        let k = t.truncatingRemainder(dividingBy: 6)
+        return k < 1.8 ? (0.8 * ease(k / 1.8), "breathe in") : k < 2.5 ? (0.8 + 0.2 * ease((k - 1.8) / 0.7), "a little more")
+            : (1 - ease((k - 2.5) / 3.5), "and out, slowly")
     }
 
     static func breathe(_ ctx: inout GraphicsContext, _ s: TomoScene, _ t: Double) {
         let c = home, r = radius
         let (b, cue) = breath(s.phaseT, s.breathing)
-        let k = 0.86 + 0.2 * b
+        // a breath lifts the body from its base a little, more up than out, like a chest (was a 23% balloon)
+        let sx = 1 + 0.04 * b, sy = 1 + 0.06 * b, k = sx
         // fade in from the splash
         var g = ctx; g.opacity = min(1, s.phaseT / 0.8)
         // a soft halo that grows with the breath
@@ -626,7 +661,7 @@ enum TomoArt {
                with: .radialGradient(Gradient(colors: [Color(hex: 0xFF8A6A, 0.22 * b + 0.05), .clear]), center: c, startRadius: r * 0.8, endRadius: r * 1.5 * k))
         shadow(&g, CGPoint(x: c.x, y: c.y + r * 0.98), r * k)
         var body = g
-        body.translateBy(x: c.x, y: c.y + r * 0.88); body.scaleBy(x: k, y: k); body.translateBy(x: -c.x, y: -(c.y + r * 0.88))
+        body.translateBy(x: c.x, y: c.y + r * 0.88); body.scaleBy(x: sx, y: sy); body.translateBy(x: -c.x, y: -(c.y + r * 0.88))
         tomo(&body, c, r, face: .sleep, eaten: 0, t: t)
         g.draw(Text(cue).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundColor(Color(hex: 0xC2452F, 0.9)), at: CGPoint(x: c.x, y: 181))
     }
