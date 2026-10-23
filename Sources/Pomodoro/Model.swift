@@ -254,12 +254,32 @@ import PomodoroCore
         let onTask = Policy.onTask(frontInfo(front), profile: current)
         let inputIdle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: Self.anyInput)
         let sinceProgress = state.app.flatMap { lastActivity[$0] }.map { now.timeIntervalSince($0) }
+        // counting uses only progress the app itself reported; the start stamp above only spares the scolding
+        let sinceReported = state.app.flatMap { lastReported[$0] }.map { now.timeIntervalSince($0) }
         working = Ladder.isWorking(inputIdle: inputIdle, sinceProgress: sinceProgress)
         // topic rules apply to Northstar and Other sessions; website profiles are judged by domain in onTask
         let onTopic = !(front.map { Self.browserIDs.contains($0.bundleIdentifier ?? "") } ?? false) || current?.kind == .website || watcher.verdict != .offTopic
         if !onTask || !onTopic { return (false, .offTask) }
         if !working { return (false, .notWorking) }
-        return (true, .none)
+        return (Ladder.isEngaged(inputIdle: inputIdle, sinceProgress: sinceReported), .none)   // counted only when engaged
+    }
+
+    /// Start on interaction (24 Oct): 10 s of real input in a profile's app starts tracking at that profile's last
+    /// length. Not after an emergency exit for 10 minutes, not on a break or after one (a tap starts those).
+    /// When each app last reported progress itself (a contract start or activity ping), for engaged counting.
+    private var lastReported: [String: Date] = [:]
+    private var interact: (id: String, seconds: Double)?
+    var autoStartAllowedAfter = Date.distantPast
+    private func autoStart(_ now: Date) {
+        guard [.idle, .armed].contains(state.phase), now >= autoStartAllowedAfter,
+              let p = profileFor(bundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier) else { interact = nil; return }
+        if interact?.id != p.id { interact = (p.id, 0) }
+        guard CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: Self.anyInput) < 1.5 else { return }
+        interact!.seconds += 1
+        guard interact!.seconds >= Policy.interactToStart else { return }
+        interact = nil
+        let w = pending?.profile == p.id ? pending : nil
+        start(p, task: w?.task, taskId: w?.taskId)
     }
 
     /// At the Mac with nothing tracked: say so at most every 5 minutes, and log the front app as an untagged L0
@@ -277,7 +297,7 @@ import PomodoroCore
         let now = Date()
         let (active, t) = assess(now)
         if state.phase == .focus && !state.paused {
-            segElapsed += 1; if active { segActive += 1 } else if t == .notWorking { segIdle += 1 } else { segOff += 1 }
+            segElapsed += 1; if active { segActive += 1 } else if t == .offTask { segOff += 1 } else { segIdle += 1 }
         } else if state.isPaused { segPaused += 1 }
         updateLadder(t, now)
         // the Chrome watcher only runs where Chrome is allowed, while a session is running
@@ -295,6 +315,7 @@ import PomodoroCore
         enforceFront(now)
         presence(now)
         untrackedPrompt(now)
+        autoStart(now)
         let shouldCompact = state.phase == .focus && !state.paused && stage == .calm && active && (calmSince.map { now.timeIntervalSince($0) > 6 } ?? false)
         if shouldCompact != compact { compact = shouldCompact }
         if now.timeIntervalSince(lastSave) > 15 { save() }
@@ -401,15 +422,11 @@ import PomodoroCore
         guard [.idle, .armed, .dayDone].contains(state.phase) else { return }
         let was = state.app
         state.arm(app: p.id, name: p.name)
-        if was != p.id, picked == p.id {
-            say(p.id == "SpeakFit" ? "SpeakFit is open. I'll start when your session starts." :
-                p.id == "NorthstarViewer" ? "Northstar is open. I'll start when you open a job." :
-                p.id == "HackerSolve" ? "HackerSolve is open. I'll start when you open a lesson." :
-                p.kind == .website ? "\(p.name): I'll start when you open it in your browser." :
-                "\(p.name) is open. Tap me to start.", for: 6)
-        } else if was != p.id {
-            say("\(p.name) is open. Tap me to pick a length.", for: 6)
-        }
+        guard was != p.id else { onChange(); return }
+        if p.kind == .website { say("\(p.name): I'll start when you open it in your browser.", for: 6) }
+        else if picked == p.id || Date() >= autoStartAllowedAfter {
+            say("\(p.name) is open. I'll start tracking once you get going (\(picked == p.id ? (nextMinutes ?? lastMinutes(p)) : lastMinutes(p)) min).", for: 6)
+        } else { say("\(p.name) is open. Tap me when you want to start.", for: 6) }
         onChange()
     }
 
@@ -481,6 +498,7 @@ import PomodoroCore
         if state.phase == .focus { recordSegment(completed: false, Date()) }
         state.stop(d)
         picked = nil; pending = nil; fights = [:]; tolerated = []
+        autoStartAllowedAfter = Date().addingTimeInterval(600)   // an exit means "not now": no auto-start for 10 min
         stage = .calm; trouble = .none; troubleSince = nil; compact = false
         for pid in hidden { NSRunningApplication(processIdentifier: pid)?.unhide() }
         hidden.removeAll()
@@ -520,6 +538,7 @@ import PomodoroCore
         guard let id = offerSwitch, let p = profile(id) else { return }
         offerSwitch = nil
         emergencyExit()
+        autoStartAllowedAfter = .distantPast   // a switch is a choice to work on the other app
         store.log(["type": "switch", "to": id, "at": iso(Date())])
         NSWorkspace.shared.runningApplications.first { p.isTarget($0.bundleIdentifier ?? "") }?.activate()
         arm(p); showLauncher?()
@@ -556,6 +575,7 @@ import PomodoroCore
     /// other apps start at once; websites start when one of their pages is in front; Other asks for the task.
     func launch(_ p: Profile, minutes: Int? = nil, task: String? = nil) {
         if let minutes { nextMinutes = minutes }
+        autoStartAllowedAfter = .distantPast
         if let w = pending, w.profile == p.id { start(p, task: w.task, taskId: w.taskId); return }
         picked = p.id
         if p.kind == .other, let t = task?.trimmingCharacters(in: .whitespaces), !t.isEmpty { start(p, task: t); return }
@@ -682,9 +702,9 @@ import PomodoroCore
         guard let p = profileFor(contract: e.app) else { return }   // an app with no profile: logged, not acted on
         switch e.phase {
         case .start:
-            lastActivity[p.id] = now
+            lastActivity[p.id] = now; lastReported[p.id] = now
             let task = e.task.isEmpty ? nil : e.task
-            switch Policy.contractStart(phase: state.phase, picked: picked, profile: p.id, session: state.app) {
+            switch Policy.contractStart(phase: state.phase, picked: picked, profile: p.id, session: state.app, autoStart: now >= autoStartAllowedAfter) {
             case .retag:
                 let changed = state.app != p.id || (task != nil && task != state.task)
                 if changed { recordSegment(completed: false, now); state.retag(app: p.id, name: p.name, task: task, taskId: taskId)
@@ -709,7 +729,7 @@ import PomodoroCore
                 state.task = nil; state.taskId = nil          // back to the app's name until the next task starts
             }
         case .activity:
-            lastActivity[p.id] = now
+            lastActivity[p.id] = now; lastReported[p.id] = now
             // an activity ping that names its task keeps the label true (e.g. a new lesson opened without a start)
             if state.phase == .focus, state.app == p.id, !e.task.isEmpty, e.task != state.task {
                 recordSegment(completed: false, now); state.retag(app: p.id, name: p.name, task: e.task, taskId: taskId)

@@ -233,6 +233,15 @@ public enum Ladder {
     /// Not working means no keyboard or mouse for 60 s AND no progress for 3 min. Progress is the app's
     /// contract `activity` pings; an app that sends none is judged on input alone (3 min), so reading a
     /// slide while scrolling now and then still counts as work.
+    /// Counting is stricter than scolding (24 Oct: "if we keep the same window open with no interaction then it is
+    /// counted as not a great progress... but if we interact lets say 4 pages in a chapter then that's counted"):
+    /// a second is active only with input in the last 20 s or a progress ping (a page, a slide, an item) in the last
+    /// 2 minutes. The ladder still waits for `isWorking` to fail before calling it "not working", so reading is not
+    /// scolded; it simply isn't padded.
+    public static func isEngaged(inputIdle: Double, sinceProgress: Double?) -> Bool {
+        inputIdle <= 20 * timeScale || (sinceProgress.map { $0 <= 120 * timeScale } ?? false)
+    }
+
     public static func isWorking(inputIdle: Double, sinceProgress: Double?) -> Bool {
         let quiet = sinceProgress ?? inputIdle
         return !(inputIdle > 60 * timeScale && quiet > 180 * timeScale)

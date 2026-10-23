@@ -37,7 +37,8 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         Profile(id: "HackerSolve", name: "HackerSolve", kind: .app, appID: "com.aniketnamjoshi.hackersolve", contractApp: "HackerSolve"),
         Profile(id: "SpeakFit", name: "SpeakFit", kind: .app, appID: "com.aniketnamjoshi.speakfit", contractApp: "SpeakFit"),
         Profile(id: "NorthstarViewer", name: "Northstar", kind: .app, appID: "com.aniket.northstar.viewer",
-                allowed: ["com.google.Chrome", "com.apple.Preview", "com.anthropic.claudefordesktop"], contractApp: "NorthstarViewer"),
+                allowed: ["com.google.Chrome", "com.apple.Preview", "com.anthropic.claudefordesktop", "com.apple.mail", "com.microsoft.Outlook"],   // email is part of the job hunt (24 Oct)
+                contractApp: "NorthstarViewer"),
     ]
 
     /// Whether this bundle id is the profile's target app (copies of an app share a prefix, e.g. ".v111").

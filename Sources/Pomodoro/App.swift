@@ -225,7 +225,7 @@ enum HotKeys {
 
     /// Quitting always works (it is also a way out). Mid-session it asks once, with Quit as the default button.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard m.state.isTimed, !m.state.isPaused else { return .terminateNow }
+        guard m.state.isTimed, !m.state.isPaused, !Updater.installing else { return .terminateNow }
         NSApp.activate()
         let a = NSAlert()
         a.messageText = "Quit Pomodoro?"

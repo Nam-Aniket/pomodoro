@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 import PomodoroCore
 
-/// Notify and download, never a silent replace: the app is not notarised, so macOS would rightly distrust a copy
-/// that swaps itself (24 Oct: "notify-and-download, not silent installs").
+/// Notify, then install on one click (24 Oct: "can it not auto install? like when i click on get the new version").
+/// Never silent: nothing changes until the person clicks, and the new app must carry this app's own code signature
+/// (same identifier, same certificate) before it replaces anything; otherwise it falls back to the drag step.
 @MainActor enum Updater {
     static let enabledKey = "checkForUpdates", lastKey = "lastUpdateCheck"
     /// On unless turned off in Settings.
@@ -44,7 +45,52 @@ import PomodoroCore
         }
     }
 
-    /// Downloads the disk image to Downloads and opens it at the drag-to-Applications step.
+    /// Set while an install is quitting the app, so the mid-session "Quit Pomodoro?" question is skipped.
+    static var installing = false
+
+    /// One click: download, verify, then a helper swaps the app in place once Pomodoro quits and opens the new one.
+    /// Returns why it could not, so the card can fall back to the manual steps.
+    static func install(_ r: Update.Release) async -> String? {
+        guard let src = r.dmg else { return "This release has no disk image." }
+        let here = Bundle.main.bundleURL, parent = here.deletingLastPathComponent()
+        guard FileManager.default.isWritableFile(atPath: parent.path) else { return "Pomodoro can't write to \(parent.path)." }
+        guard let (tmp, response) = try? await URLSession.shared.download(from: src), (response as? HTTPURLResponse)?.statusCode == 200 else {
+            return "The download didn't work."
+        }
+        return await Task.detached { () -> String? in
+            let work = FileManager.default.temporaryDirectory.appendingPathComponent("pomodoro-update-\(UUID().uuidString)")
+            let mount = work.appendingPathComponent("mnt"), staged = work.appendingPathComponent("Pomodoro.app")
+            try? FileManager.default.createDirectory(at: mount, withIntermediateDirectories: true)
+            guard run("/usr/bin/hdiutil", ["attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount.path, tmp.path]).ok else { return "The disk image wouldn't open." }
+            defer { _ = run("/usr/bin/hdiutil", ["detach", "-force", mount.path]) }
+            let new = mount.appendingPathComponent("Pomodoro.app")
+            // genuine: the new app must satisfy this app's own designated requirement (identifier + certificate)
+            let dr = run("/usr/bin/codesign", ["-d", "-r-", here.path]).out
+                .components(separatedBy: "\n").first { $0.hasPrefix("designated => ") }?.replacingOccurrences(of: "designated => ", with: "")
+            guard let dr, !dr.contains("cdhash") else { return "This copy isn't signed in a way updates can be checked against." }
+            guard run("/usr/bin/codesign", ["--verify", "--strict", "--deep", "-R=\(dr)", new.path]).ok else { return "The download isn't signed like this app, so it wasn't installed." }
+            guard run("/usr/bin/ditto", [new.path, staged.path]).ok else { return "Copying the new version failed." }
+            // the helper outlives this process: wait for it to quit, swap (old kept until the new is in), reopen
+            let script = """
+            while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.2; done
+            rm -rf "$1.old" && mv "$1" "$1.old" && /usr/bin/ditto "$2" "$1" && rm -rf "$1.old" || { rm -rf "$1"; mv "$1.old" "$1"; }
+            rm -rf "$3"; /usr/bin/open "$1"
+            """
+            let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/sh"); p.arguments = ["-c", script, "sh", here.path, staged.path, work.path]
+            do { try p.run() } catch { return "The installer couldn't start." }
+            return nil
+        }.value
+    }
+
+    nonisolated static func run(_ tool: String, _ args: [String]) -> (ok: Bool, out: String) {
+        let p = Process(), pipe = Pipe()
+        p.executableURL = URL(fileURLWithPath: tool); p.arguments = args; p.standardOutput = pipe; p.standardError = pipe
+        guard (try? p.run()) != nil else { return (false, "") }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit()
+        return (p.terminationStatus == 0, String(decoding: data, as: UTF8.self))
+    }
+
+    /// Fallback: downloads the disk image to Downloads and opens it at the drag-to-Applications step.
     static func download(_ r: Update.Release) async -> URL? {
         guard let src = r.dmg,
               let (tmp, response) = try? await URLSession.shared.download(from: src),
@@ -63,7 +109,7 @@ struct UpdateView: View {
     @ObservedObject var m: Model
     var close: () -> Void
     @State var stage = Stage.ready
-    enum Stage: Equatable { case ready, downloading, opened(String), failed }
+    enum Stage: Equatable { case ready, installing, manual(String), opened(String), failed }
 
     var body: some View {
         VStack(alignment: .leading, spacing: T.s4) {
@@ -83,12 +129,16 @@ struct UpdateView: View {
                         }.frame(maxHeight: 180)
                     }
                 }
-                VStack(alignment: .leading, spacing: T.s1 + 2) {
-                    step(1, "Get the new version: the disk image downloads and opens.")
-                    step(2, "Drag Pomodoro onto Applications, and choose Replace.")
-                    step(3, "Open it again. Your sessions, profiles and ideas stay; they live outside the app.")
-                }
+                Text("Install downloads it, checks it's signed exactly like this copy, swaps it in and reopens Pomodoro in a few seconds. Your sessions, profiles and ideas stay; they live outside the app.")
+                    .font(T.callout()).foregroundStyle(T.ink2).fixedSize(horizontal: false, vertical: true)
                 switch stage {
+                case .manual(let why):
+                    VStack(alignment: .leading, spacing: T.s1 + 2) {
+                        Text("\(why) Install it by hand instead:").font(T.callout()).foregroundStyle(T.tomato).fixedSize(horizontal: false, vertical: true)
+                        step(1, "Download the disk image (the button below opens it).")
+                        step(2, "Quit Pomodoro (⌘Q), drag Pomodoro onto Applications and choose Replace.")
+                        step(3, "Open Pomodoro from Applications.")
+                    }
                 case .opened(let path):
                     Text("Opened \(path.replacingOccurrences(of: NSHomeDirectory(), with: "~")). Drag Pomodoro onto Applications.")
                         .font(T.callout()).foregroundStyle(T.leaf).fixedSize(horizontal: false, vertical: true)
@@ -101,8 +151,12 @@ struct UpdateView: View {
                 HStack(spacing: T.s2) {
                     PButton(title: "Later", kind: .ghost) { close() }.keyboardShortcut(.cancelAction)
                     Spacer()
-                    PButton(title: stage == .downloading ? "Downloading…" : "Get the new version", symbol: "arrow.down.circle.fill", kind: .primary) { get(r) }
-                        .keyboardShortcut(.defaultAction).disabled(stage == .downloading)
+                    if case .manual = stage {
+                        PButton(title: "Download the disk image", symbol: "arrow.down.circle.fill", kind: .primary) { get(r) }.keyboardShortcut(.defaultAction)
+                    } else {
+                        PButton(title: stage == .installing ? "Installing…" : "Install and restart", symbol: "arrow.down.circle.fill", kind: .primary) { install(r) }
+                            .keyboardShortcut(.defaultAction).disabled(stage == .installing)
+                    }
                 }
             } else {
                 Text("Pomodoro is up to date.").font(T.title()).foregroundStyle(T.ink).padding(.top, 36)
@@ -121,8 +175,16 @@ struct UpdateView: View {
         }
     }
 
+    func install(_ r: Update.Release) {
+        stage = .installing
+        Task {
+            if let why = await Updater.install(r) { stage = .manual(why) }
+            else { Updater.installing = true; NSApp.terminate(nil) }
+        }
+    }
+
     func get(_ r: Update.Release) {
-        stage = .downloading
+        stage = .installing
         Task {
             if let url = await Updater.download(r) { stage = .opened(url.path) }
             else { stage = .failed; NSWorkspace.shared.open(r.page) }

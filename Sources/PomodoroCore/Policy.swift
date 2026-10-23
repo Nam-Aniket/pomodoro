@@ -18,13 +18,21 @@ public enum Policy {
     /// A session never starts silently: only a profile picked in the launcher starts on its app's start.
     /// Mid-session, only the session's own app may retitle it; another app's start is logged and ignored.
     public enum StartAction: Equatable, Sendable { case start, retag, ignore, waitForBreak, ask }
-    public static func contractStart(phase: Phase, picked: String?, profile: String, session: String? = nil) -> StartAction {
+    /// 24 Oct: "rather if it starts when we are interacting with app": a task opening in a profile's app starts the
+    /// clock at that profile's last length (`autoStart`), except right after an emergency exit (the 45-minute
+    /// incident), after a break (it waits for a tap) and on a finished day; then Tomo asks instead.
+    public static func contractStart(phase: Phase, picked: String?, profile: String, session: String? = nil, autoStart: Bool = false) -> StartAction {
         switch phase {
         case .focus: return session == profile ? .retag : .ignore
         case .breakTime: return .waitForBreak
+        case .idle, .armed: return picked == profile || autoStart ? .start : .ask
         default: return picked == profile ? .start : .ask
         }
     }
+
+    /// Seconds of real input in a profile's app before tracking starts on its own: long enough that a glance
+    /// doesn't start a session, short enough that work does.
+    public static let interactToStart: Double = 10
 
     /// What is in front right now.
     public struct Front: Sendable {
@@ -155,7 +163,8 @@ public enum TopicRules {
                       "linkedin.com/feed", "news.google.com", "news.yahoo.com"]
     static let on: [String: [String]] = [
         "NorthstarViewer": ["seek.com.au", "linkedin.com/jobs", "indeed.com", "greenhouse.io", "lever.co", "myworkdayjobs.com", "workday.com",
-                     "smartrecruiters.com", "ashbyhq.com", "glassdoor.com", "jora.com", "docs.google.com", "mail.google.com", "claude.ai"],
+                     "smartrecruiters.com", "ashbyhq.com", "glassdoor.com", "jora.com", "docs.google.com", "mail.google.com", "claude.ai",
+                     "outlook.live.com", "outlook.office.com", "calendar.google.com"],
         "Other": ["claude.ai", "docs.google.com"],
     ]
     /// Video sites can be a tutorial or a distraction: the title decides.

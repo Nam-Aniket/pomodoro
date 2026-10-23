@@ -25,7 +25,7 @@
    - **macOS 15 Sequoia and later:** macOS says it can't check the app. Click **Done**, open **System Settings → Privacy & Security**, scroll to **Security**, click **Open Anyway** next to Pomodoro, then **Open Anyway** again and enter your Mac password. The Control-click → Open shortcut no longer skips this on macOS 15 ([Apple: Safely open apps on your Mac](https://support.apple.com/en-us/102445)).
    - **macOS 14 Sonoma:** Control-click (or right-click) Pomodoro in Applications → **Open** → **Open**. The Privacy & Security → Open Anyway route above works too.
 
-After that it opens normally, and updates install the same way: Pomodoro tells you when a new version is ripe and downloads the disk image for you.
+After that it opens normally. Updates are one click: a seed packet sprouts beside Tomo when a new version is ripe, and **Install and restart** downloads it, checks it is signed exactly like your copy, swaps it in and reopens Pomodoro.
 
 Needs macOS 14 or later; runs natively on Apple silicon and Intel.
 
@@ -42,7 +42,8 @@ tools/make_app.sh
 ## Use
 
 - **First launch:** pick what you want to focus on. Any app works (VS Code, Notion, Figma...). Pick a **browser** and you can add links instead: paste `github.com/you/repo` and every GitHub page counts, anything else is off track. Tick the few apps allowed to stay open, set a default length, and **Save profile**.
-- **Tap Tomo** to pick a profile, or *Other* with a typed task, and twist the tomato timer: 5 to 60 minutes.
+- **Just start working.** Ten seconds of real use of a profile's app starts tracking at that profile's last length. Or **tap Tomo** to pick a profile, or *Other* with a typed task, and twist the tomato timer: 5 to 60 minutes.
+- **Only engaged time counts.** Typing, clicking, scrolling, or turning a page (in apps that report progress) keeps the clock going; a window left open untouched does not.
 - **A session belongs to its profile.** Open another study app mid-session and Tomo asks: **Switch** focus, or **Stay**. Nothing starts without you choosing it.
 - **Insights** (⌘I): active time, tomatoes, focus quality, per task; today, week, month.
 

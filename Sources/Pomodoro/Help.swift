@@ -52,6 +52,8 @@ struct HelpView: View {
                 Card {
                     VStack(alignment: .leading, spacing: T.s2) {
                         Overline(text: "During a session")
+                        bullet("Tracking starts by itself after about 10 seconds of real use of a profile's app, at that profile's last length. Not for 10 minutes after an emergency exit.")
+                        bullet("Only engaged time counts: typing, clicking or scrolling in the last 20 seconds, or a page or item your app reported in the last 2 minutes.")
                         bullet("Apps outside your focus profile are hidden (Cmd-H), never closed.")
                         bullet("Open another study app and Tomo asks: Switch focus, or Stay.")
                         bullet("Off task: a nudge at 10 s, cross at 22 s, simmering at 44 s, boiling at 66 s, a siren at 116 s. Tap Tomo when you're back.")

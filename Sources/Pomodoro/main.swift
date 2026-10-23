@@ -50,6 +50,17 @@ if let i = args.firstIndex(of: "--icon"), i + 1 < args.count {
     exit(0)
 }
 // `--sounds <dir>` writes every sound, three takes each (every take differs), for a listen.
+// Update test: this copy installs the latest release over itself (run a copy in a temp folder, labelled older).
+if args.contains("--update-test") {
+    Task { @MainActor in
+        guard case .newer(let r) = await Updater.fetch() else { print("update-test: no newer release"); exit(2) }
+        let why = await Updater.install(r)
+        print(why.map { "update-test: fell back: \($0)" } ?? "update-test: installing \(r.version) over \(Bundle.main.bundlePath)")
+        exit(why == nil ? 0 : 1)
+    }
+    RunLoop.main.run()
+}
+
 // Regression check: every sound in every palette, 20 random seeds each. A buffer overrun traps, so reaching the
 // end is the pass (the breath sounds crashed every breathing break until 0.5.3).
 if args.contains("--sound-check") {
