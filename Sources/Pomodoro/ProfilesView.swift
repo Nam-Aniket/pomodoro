@@ -81,7 +81,7 @@ struct ProfilesView: View {
         switch p.kind {
         case .other: "type your task"
         case .website: p.domains.isEmpty ? "website · add links" : p.domains.joined(separator: ", ")
-        case .app: p.contractApp != nil ? "starts with a task" : p.appID == nil ? "pick an app" : "\(p.minutes) min"
+        case .app: p.appID == nil ? "pick an app" : "\(m.lastMinutes(p)) min"
         }
     }
 

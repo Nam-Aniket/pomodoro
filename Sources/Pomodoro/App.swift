@@ -443,7 +443,7 @@ struct SettingsView: View {
                             PChip(title: "Cyclic sighing", on: breathing == "cyclic") { breathing = "cyclic" }
                             PChip(title: "Box breathing", on: breathing == "box") { breathing = "box" }
                         }
-                        Text(breathing == "box" ? "In 4, hold 4, out 4, hold 4." : "Two short breaths in through the nose, one long breath out. Five minutes of it lifted mood more than mindfulness in one trial.")
+                        Text(breathing == "box" ? "In 4, hold 4, out 4, hold 4." : "Two short breaths in through the nose, one long breath out, for up to a minute at the start of each break. Done daily, it lifted mood more than mindfulness in one trial.")
                             .font(T.caption()).foregroundStyle(T.ink2).fixedSize(horizontal: false, vertical: true)
                     }
                 }

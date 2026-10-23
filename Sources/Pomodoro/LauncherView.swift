@@ -123,7 +123,7 @@ struct LauncherView: View {
         switch p.kind {
         case .other: "type your task"
         case .website: p.domains.isEmpty ? "add sites in Profiles" : p.domains.joined(separator: ", ")
-        case .app: p.contractApp != nil ? "starts with a task" : "\(p.minutes) min default"
+        case .app: "\(m.lastMinutes(p)) min · starts when you do"
         }
     }
 

@@ -220,7 +220,7 @@ import PomodoroCore
             return inBreathing ? "Breathe with me · tap to skip" : "\(Int(state.remaining(d) / 60) + 1) min of rest left"
         case .ready: return "Tap to start session \(state.done + 1)"
         case .dayDone: return "Full harvest · \(Int(state.dayActive / 60)) active min today"
-        case .armed: return current?.contractApp != nil ? "\(state.appName ?? "App") is open · the clock starts with a task" : "Tap to start \(state.appName ?? "a session")"
+        case .armed: return "\(state.appName ?? "App") is open · starts when you get going"
         case .idle: return String(format: "%.1f of %d tomatoes today", state.harvest(d), d.perDay)
         }
     }
