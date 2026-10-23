@@ -23,17 +23,17 @@ func run(_ s: inout DayState, from t0: Date, seconds n: Int, working: (Int) -> B
 // Arming: opening an app does not start the clock; a task start does (23 Oct rule).
 do {
     var s = DayState(day: DayState.dayKey(at(9)))
-    s.arm(app: .northstar)
-    check(s.phase == .armed && s.app == .northstar, "app open arms Tomo")
+    s.arm(app: "NorthstarViewer")
+    check(s.phase == .armed && s.app == "NorthstarViewer", "app open arms Tomo")
     check(run(&s, from: at(9), seconds: 600, d).isEmpty && s.dayActive == 0, "armed: no time counts")
-    check(s.startFocus(app: .northstar, task: "Reviewing a job posting", now: at(9, 10), d), "task start begins the clock")
-    check(!s.startFocus(app: .speakFit, task: nil, now: at(9, 11), d), "no second session on top of a running one")
+    check(s.startFocus(app: "NorthstarViewer", task: "Reviewing a job posting", now: at(9, 10), d), "task start begins the clock")
+    check(!s.startFocus(app: "SpeakFit", task: nil, now: at(9, 11), d), "no second session on top of a running one")
 }
 
 // Only active seconds count, a 45-minute session needs 45 ACTIVE minutes, harvest fills by minutes.
 do {
     var s = DayState(day: DayState.dayKey(at(9)))
-    s.startFocus(app: .hackerSolve, task: "Lesson 4", now: at(9), d)
+    s.startFocus(app: "HackerSolve", task: "Lesson 4", now: at(9), d)
     _ = run(&s, from: at(9), seconds: 1200, working: { $0 % 2 == 0 }, d)      // half the seconds idle
     check(abs(s.active - 600) < 1 && abs(s.elapsed - 1200) < 1, "20 min wall, 10 min active (got \(s.active))")
     check(abs(s.progress(d) - 600.0 / 2700) < 0.001, "progress by active time")
@@ -49,7 +49,7 @@ do {
 // A 30-minute session fills two-thirds of a tomato; 5/5 fires only at 225 active minutes.
 do {
     var s = DayState(day: DayState.dayKey(at(9)))
-    s.startFocus(app: .speakFit, task: "Practice", target: 1800, now: at(9), d)
+    s.startFocus(app: "SpeakFit", task: "Practice", target: 1800, now: at(9), d)
     _ = run(&s, from: at(9), seconds: 1800, d)
     check(abs(s.harvest(d) - 2.0 / 3) < 0.01, "30 min = 2/3 tomato")
     var all: [ScheduleEvent] = []
@@ -57,7 +57,7 @@ do {
     while s.dayActive < d.dayGoal - 1 {
         _ = run(&s, from: t, seconds: Int(s.rest(d)) + 1, d)                 // finish the break
         t = t.addingTimeInterval(s.rest(d) + 1)
-        s.startFocus(app: .hackerSolve, task: "L", target: 1800, now: t, d)
+        s.startFocus(app: "HackerSolve", task: "L", target: 1800, now: t, d)
         all += run(&s, from: t, seconds: 1800, d)
         t = t.addingTimeInterval(1800)
     }
@@ -70,7 +70,7 @@ do {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("pomodoro-check-\(UUID())")
     let store = Store(root: dir)
     var s = DayState(day: DayState.dayKey(at(10)))
-    s.startFocus(app: .speakFit, task: "Day 12 plan", now: at(10), d)
+    s.startFocus(app: "SpeakFit", task: "Day 12 plan", now: at(10), d)
     _ = run(&s, from: at(10), seconds: 754, d)
     s.pause(now: at(10, 12, 34))
     check(s.isPaused && Int(s.active.rounded()) == 754, "paused at 12:34")
@@ -85,7 +85,7 @@ do {
     _ = r.tick(now: at(12, 30), active: true, d)                              // a 30-minute jump (sleep)
     check(Int(r.active.rounded()) == 764, "a long gap never counts as work")
     var c = DayState(day: DayState.dayKey(at(13)))
-    c.startFocus(app: .northstar, task: nil, now: at(13), d)
+    c.startFocus(app: "NorthstarViewer", task: nil, now: at(13), d)
     _ = run(&c, from: at(13), seconds: 300, d)
     store.save(c, now: at(13, 5))
     let back = store.load(now: at(14))
@@ -113,7 +113,7 @@ do {
     check(DayState.dayKey(at(3, 59, day: 24)) == "2026-10-23", "3:59 belongs to the day before")
     check(DayState.dayKey(at(4, 0, day: 24)) == "2026-10-24", "4:00 starts a new day")
     var s = DayState(day: "2026-10-23")
-    s.startFocus(app: .hackerSolve, task: nil, now: at(20), d)
+    s.startFocus(app: "HackerSolve", task: nil, now: at(20), d)
     _ = run(&s, from: at(20), seconds: 120, d)
     s.stop(d)
     check(s.phase == .idle && Int(s.dayActive.rounded()) == 120, "emergency stop keeps worked minutes")
@@ -123,10 +123,10 @@ do {
 // Switching study apps mid-session moves the session, never restarts the clock.
 do {
     var s = DayState(day: DayState.dayKey(at(9)))
-    s.startFocus(app: .hackerSolve, task: "Lesson 4", now: at(9), d)
+    s.startFocus(app: "HackerSolve", task: "Lesson 4", now: at(9), d)
     _ = run(&s, from: at(9), seconds: 60, d)
-    s.retag(app: .speakFit, task: "Day 12 plan", taskId: nil)
-    check(s.app == .speakFit && s.task == "Day 12 plan" && Int(s.active.rounded()) == 60, "retag keeps the clock")
+    s.retag(app: "SpeakFit", task: "Day 12 plan", taskId: nil)
+    check(s.app == "SpeakFit" && s.task == "Day 12 plan" && Int(s.active.rounded()) == 60, "retag keeps the clock")
 }
 
 // The anger ladder (D12 strict, D13 siren) and the not-working rule.
@@ -142,40 +142,69 @@ do {
     check(L.isWorking(inputIdle: 150, sinceProgress: nil) && !L.isWorking(inputIdle: 200, sinceProgress: nil), "no-progress apps judged on input, 3 min")
 }
 
-// Policy: the allowlist, the safety list, study apps always allowed, on-task vs merely allowed.
+// Policy, profile-based: allowlists, the safety list, contract apps never hidden, on task vs merely allowed,
+// website profiles judged by the front tab's domain.
 do {
-    func may(_ id: String, _ app: FocusApp?, path: String? = nil, regular: Bool = true) -> Bool {
-        Policy.mayFront(bundleID: id, bundlePath: path, isRegular: regular, isSelf: false, session: app)
+    let hs = Profile.contractPresets[0], sf = Profile.contractPresets[1], ns = Profile.contractPresets[2]
+    let contract = Profile.contractPresets.compactMap(\.appID)
+    let gh = Profile(id: "gh", name: "GitHub", kind: .website, domains: ["github.com"], allowed: ["com.apple.Notes"])
+    let code = Profile(id: "vs", name: "VS Code", kind: .app, appID: "com.microsoft.VSCode", allowed: ["com.google.Chrome"])
+    func may(_ id: String, _ p: Profile?, path: String? = nil, regular: Bool = true, browser: Bool = false) -> Bool {
+        Policy.mayFront(.init(bundleID: id, path: path, isRegular: regular, isBrowser: browser), profile: p, contractTargets: contract)
     }
-    check(!may("com.apple.Safari", .speakFit), "Safari hidden in SpeakFit")
-    check(!may("com.google.Chrome", .speakFit) && !may("com.google.Chrome", .hackerSolve), "Chrome hidden in SpeakFit and HackerSolve")
-    check(may("com.google.Chrome", .northstar) && may("com.apple.Preview", .northstar), "Chrome and Preview in Northstar (D4)")
-    check(may("com.google.Chrome", .other) && !may("com.apple.Safari", .other), "Other: Chrome and Preview")
-    check(may("com.aniketnamjoshi.speakfit", .hackerSolve) && may("com.aniket.northstar.viewer", .speakFit), "study apps never hidden (23 Oct incident)")
-    check(may("com.aniketnamjoshi.hackersolve.v111", .speakFit), "HackerSolve copies count as study apps")
+    func on(_ id: String, _ p: Profile, browser: Bool = false, host: String? = nil) -> Bool {
+        Policy.onTask(.init(bundleID: id, isBrowser: browser, host: host), profile: p)
+    }
+    check(!may("com.apple.Safari", sf), "Safari hidden in SpeakFit")
+    check(!may("com.google.Chrome", sf) && !may("com.google.Chrome", hs), "Chrome hidden in SpeakFit and HackerSolve")
+    check(may("com.google.Chrome", ns) && may("com.apple.Preview", ns), "Chrome and Preview in Northstar (D4)")
+    check(may("com.google.Chrome", .other) && !may("com.apple.Notes", .other), "Other: browsers and Preview")
+    check(may("com.aniketnamjoshi.speakfit", hs) && may("com.aniket.northstar.viewer", sf), "contract apps never hidden (23 Oct incident)")
+    check(may("com.aniketnamjoshi.hackersolve.v111", sf), "copies of a contract app count")
     for id in ["com.anthropic.claudefordesktop", "com.apple.Terminal", "com.apple.finder", "com.apple.systempreferences", "com.apple.FaceTime"] {
-        check(may(id, .speakFit), "safety: \(id) never hidden")
+        check(may(id, sf), "safety: \(id) never hidden")
     }
-    check(may("com.apple.Notes", .speakFit, regular: false), "non-regular processes untouched")
-    check(may("com.apple.Installer", .speakFit, path: "/System/Library/CoreServices/Installer.app"), "CoreServices untouched")
+    check(may("com.apple.Notes", sf, regular: false), "non-regular processes untouched")
+    check(may("com.apple.Installer", sf, path: "/System/Library/CoreServices/Installer.app"), "CoreServices untouched")
     check(may("com.apple.Notes", nil), "no session, nothing hidden")
-    func on(_ id: String, _ app: FocusApp) -> Bool { Policy.onTask(bundleID: id, isSelf: false, session: app) }
-    check(on("com.aniketnamjoshi.hackersolve", .hackerSolve) && !on("com.apple.finder", .hackerSolve), "Finder allowed but not on task")
-    check(on("com.anthropic.claudefordesktop", .northstar) && !on("com.anthropic.claudefordesktop", .hackerSolve), "Claude is on task only for Northstar")
-    check(Policy.onTask(bundleID: nil, isSelf: true, session: .hackerSolve), "Tomo's search window is on task")
+    check(on("com.aniketnamjoshi.hackersolve", hs) && !on("com.apple.finder", hs), "Finder allowed but not on task")
+    check(on("com.anthropic.claudefordesktop", ns) && !on("com.anthropic.claudefordesktop", hs), "Claude on task only for Northstar")
+    check(Policy.onTask(.init(bundleID: nil, isSelf: true), profile: hs), "Tomo's own window is on task")
+    // any app
+    check(may("com.microsoft.VSCode", code) && may("com.google.Chrome", code) && !may("com.tinyspeck.slackmacgap", code), "app profile: target and allowed stay, Slack hidden")
+    check(on("com.microsoft.VSCode", code) && on("com.google.Chrome", code), "app profile on task")
+    // websites, any browser
+    check(may("com.brave.Browser", gh, browser: true) && may("com.apple.Notes", gh) && !may("com.apple.Mail", gh), "website: any browser and allowed apps stay")
+    check(on("com.apple.Safari", gh, browser: true, host: "github.com") && on("com.google.Chrome", gh, browser: true, host: "gist.github.com"), "github.com and subdomains on task")
+    check(!on("com.google.Chrome", gh, browser: true, host: "www.youtube.com") && !on("com.google.Chrome", gh, browser: true, host: "github.io"), "other domains off task")
+    var strict = gh; strict.includeSubdomains = false; strict.browsers = ["com.apple.Safari"]
+    check(!on("com.apple.Safari", strict, browser: true, host: "gist.github.com") && !may("com.google.Chrome", strict, browser: true), "subdomain toggle and browser limit")
+}
+
+// Profiles store: presets only for installed contract apps, plus Other; saved profiles round-trip.
+do {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("profiles-\(UUID())")
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let ps = ProfileStore(root: dir)
+    check(ps.load(installed: { _ in false }).map(\.id) == ["Other"], "fresh Mac: only Other")
+    check(ps.load(installed: { $0 == "com.aniketnamjoshi.speakfit" }).map(\.id) == ["SpeakFit", "Other"], "installed contract app becomes a preset")
+    let gh = Profile(id: "gh", name: "GitHub", kind: .website, domains: ["github.com"], minutes: 30)
+    ps.save([gh, .other])
+    check(ps.load(installed: { _ in true }) == [gh, .other], "saved profiles round-trip")
+    try? FileManager.default.removeItem(at: dir)
 }
 
 // Chrome watcher rules (tier 1).
 do {
     typealias T = TopicRules
-    check(T.judge(url: "https://www.instagram.com/", app: .northstar) == .offTopic, "Instagram off")
-    check(T.judge(url: "https://www.seek.com.au/job/95441065", app: .northstar) == .onTopic, "SEEK on for Northstar")
-    check(T.judge(url: "https://www.seek.com.au/job/1", app: .other) == .unsure, "SEEK not automatic for Other")
-    check(T.judge(url: "https://www.linkedin.com/jobs/view/1", app: .northstar) == .onTopic && T.judge(url: "https://www.linkedin.com/feed/", app: .northstar) == .offTopic, "LinkedIn jobs on, feed off")
-    check(T.judge(url: "https://canva.wd3.myworkdayjobs.com/x", app: .northstar) == .onTopic, "Workday subdomain on")
-    check(T.judge(url: "https://www.youtube.com/watch?v=1", app: .other) == .titleDecides, "YouTube: the title decides")
-    check(T.judge(url: "https://notx.com/", app: .other) == .unsure, "look-alike host not matched")
-    check(T.judge(url: "https://www.google.com/search?q=kafka", app: .other) == .unsure, "searches go to the meaning check")
+    check(T.judge(url: "https://www.instagram.com/", app: "NorthstarViewer") == .offTopic, "Instagram off")
+    check(T.judge(url: "https://www.seek.com.au/job/95441065", app: "NorthstarViewer") == .onTopic, "SEEK on for Northstar")
+    check(T.judge(url: "https://www.seek.com.au/job/1", app: "Other") == .unsure, "SEEK not automatic for Other")
+    check(T.judge(url: "https://www.linkedin.com/jobs/view/1", app: "NorthstarViewer") == .onTopic && T.judge(url: "https://www.linkedin.com/feed/", app: "NorthstarViewer") == .offTopic, "LinkedIn jobs on, feed off")
+    check(T.judge(url: "https://canva.wd3.myworkdayjobs.com/x", app: "NorthstarViewer") == .onTopic, "Workday subdomain on")
+    check(T.judge(url: "https://www.youtube.com/watch?v=1", app: "Other") == .titleDecides, "YouTube: the title decides")
+    check(T.judge(url: "https://notx.com/", app: "Other") == .unsure, "look-alike host not matched")
+    check(T.judge(url: "https://www.google.com/search?q=kafka", app: "Other") == .unsure, "searches go to the meaning check")
 }
 
 // SQLite session store.
@@ -196,10 +225,11 @@ do {
 // The com.aniket.focus contract.
 do {
     let e = FocusEvent(userInfo: ["app": "SpeakFit", "phase": "start", "task": " Day 12 plan: voice ", "at": "2026-10-23T10:00:00Z", "day": "12", "minutes": "15"])
-    check(e?.app == .speakFit && e?.phase == .start && e?.task == "Day 12 plan: voice", "parses SpeakFit start")
+    check(e?.app == "SpeakFit" && e?.phase == .start && e?.task == "Day 12 plan: voice", "parses SpeakFit start")
     check(e?.extras == ["day": "12", "minutes": "15"], "extras pass through")
-    check(FocusEvent(userInfo: ["app": "NorthstarViewer", "phase": "end"])?.app == .northstar, "Viewer end without task")
-    check(FocusEvent(userInfo: ["app": "Safari", "phase": "start"]) == nil, "unknown app ignored")
+    check(FocusEvent(userInfo: ["app": "NorthstarViewer", "phase": "end"])?.app == "NorthstarViewer", "Viewer end without task")
+    check(FocusEvent(userInfo: ["app": "  ", "phase": "start"]) == nil, "blank app ignored")
+    check(FocusEvent(userInfo: ["app": "MyEditor", "phase": "start", "task": "Chapter 3"])?.app == "MyEditor", "any app may post the contract")
     check(FocusEvent(userInfo: ["app": "SpeakFit", "phase": "open"]) == nil, "unknown phase ignored")
     let act = FocusEvent(userInfo: ["app": "HackerSolve", "phase": "activity", "task": "Lesson 4", "kind": "slide", "taskId": "l4"])
     check(act?.phase == .activity && act?.extras == ["kind": "slide", "taskId": "l4"], "v2 activity parses, taskId passes through")
@@ -226,9 +256,9 @@ do {
 do {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lot-\(UUID())")
     let lot = ParkingLot(file: dir.appendingPathComponent("ideas-inbox.md"))
-    _ = try? lot.park("Make the lesson diagram zoomable", app: .hackerSolve, task: "Lesson 4", now: at(14, 5))
-    _ = try? lot.park("  second\nidea ", app: .speakFit, task: nil, now: at(14, 9))
-    _ = try? lot.park("   ", app: .hackerSolve, task: nil, now: at(14, 9))
+    _ = try? lot.park("Make the lesson diagram zoomable", app: "HackerSolve", task: "Lesson 4", now: at(14, 5))
+    _ = try? lot.park("  second\nidea ", app: "SpeakFit", task: nil, now: at(14, 9))
+    _ = try? lot.park("   ", app: "HackerSolve", task: nil, now: at(14, 9))
     _ = try? lot.park("general one", app: nil, task: "", now: at(14, 10))
     let text = (try? String(contentsOf: lot.file, encoding: .utf8)) ?? ""
     check(text.hasPrefix("# Ideas inbox"), "header written once")
@@ -243,9 +273,9 @@ do {
 do {
     var s = DayState(day: DayState.dayKey(at(9)))
     let quick = Durations(focus: 10, dayGoal: 20, perDay: 2, restOverride: 5)
-    s.startFocus(app: .hackerSolve, task: "Lesson 4", now: at(9), quick)
+    s.startFocus(app: "HackerSolve", task: "Lesson 4", now: at(9), quick)
     _ = run(&s, from: at(9), seconds: 16, quick)
-    s.startFocus(app: .speakFit, task: "", now: at(9, 1), quick)
+    s.startFocus(app: "SpeakFit", task: "", now: at(9, 1), quick)
     let ev = run(&s, from: at(9, 1), seconds: 10, quick)
     check(ev.contains(.dayDone) && s.tasks == ["Lesson 4", "SpeakFit"], "day keeps task titles, app name when blank")
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("harvest-\(UUID())")
@@ -254,6 +284,8 @@ do {
     check(store.recordFullHarvest(day: "2026-10-26") == 2, "a gap of days loses nothing")
     try? FileManager.default.removeItem(at: dir)
 }
+
+domainChecks()
 
 print(failures == 0 ? "pomodoro-check: all passed" : "pomodoro-check: \(failures) failed")
 exit(failures == 0 ? 0 : 1)

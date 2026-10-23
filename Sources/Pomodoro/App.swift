@@ -183,6 +183,10 @@ enum HotKeys {
         m.showLauncher = { [weak self] in self?.popLauncher() }
         refreshStatus()
 
+        // First run on a new Mac: no saved profiles yet, so set one up.
+        if !m.profileStore.exists && !m.profiles.contains(where: { $0.contractApp != nil }) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.showProfiles(firstRun: true) }
+        }
         HotKeys.register(1, key: kVK_ANSI_E) { MainActor.assumeIsolated { self.m.emergencyExit() } }
         HotKeys.register(2, key: kVK_ANSI_I) { MainActor.assumeIsolated { self.panel.orderFrontRegardless(); self.m.beginField(.idea) } }
     }
@@ -195,7 +199,7 @@ enum HotKeys {
         NSApp.activate()
         let a = NSAlert()
         a.messageText = "Quit Pomodoro?"
-        a.informativeText = "Tomo will remember where you were: \(m.clock(m.state.active)) active in \(m.state.task ?? m.state.app?.title ?? "this session"). Hidden apps come back."
+        a.informativeText = "Tomo will remember where you were: \(m.clock(m.state.active)) active in \(m.state.task ?? m.state.appName ?? "this session"). Hidden apps come back."
         a.addButton(withTitle: "Quit"); a.addButton(withTitle: "Cancel")
         return a.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
     }
@@ -249,14 +253,14 @@ enum HotKeys {
         var items: [NSMenuItem] = []
         let header = NSMenuItem(title: "Work on…", action: nil, keyEquivalent: ""); header.isEnabled = false
         items.append(header)
-        for a in FocusApp.launchable { items.append(item("  \(a.title)") { self.m.launch(a) }) }
-        items.append(item("  Other…") { self.panel.orderFrontRegardless(); self.m.beginField(.otherTask) })
+        for p in m.profiles { items.append(item("  \(p.kind == .other ? "Other…" : p.name)") { self.panel.orderFrontRegardless(); self.m.launch(p) }) }
+        items.append(item("  Edit profiles…") { self.openProfiles() })
         let len = NSMenu()
         for mins in [25, 30, 45, 60] { len.addItem(item("\(mins) minutes", checked: m.sessionMinutes == mins) { self.m.sessionMinutes = mins }) }
         let lenItem = NSMenuItem(title: "Session length: \(m.sessionMinutes) min", action: nil, keyEquivalent: ""); lenItem.submenu = len
         items.append(lenItem)
-        if m.state.phase == .armed, let a = m.state.app {
-            items.append(item("Start \(a.title) now, without a task") { self.m.start(a) })
+        if m.state.phase == .armed, let p = m.current {
+            items.append(item("Start \(p.name) now") { self.m.start(p) })
         }
         return items
     }
@@ -268,6 +272,18 @@ enum HotKeys {
         menu.addItem(item("Insights…") { self.openInsights() })
         let mouse = NSEvent.mouseLocation
         menu.popUp(positioning: nil, at: NSPoint(x: mouse.x - panel.frame.minX, y: mouse.y - panel.frame.minY), in: panel.contentView)
+    }
+
+    var profilesWindow: NSWindow?
+    @objc func openProfiles() { showProfiles(firstRun: false) }
+    func showProfiles(firstRun: Bool) {
+        if profilesWindow == nil {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 560), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            w.title = "Focus profiles"; w.isReleasedWhenClosed = false
+            w.contentView = NSHostingView(rootView: ProfilesView(m: m, firstRun: firstRun))
+            w.center(); profilesWindow = w
+        }
+        NSApp.activate(); profilesWindow?.makeKeyAndOrderFront(nil)
     }
 
     var insightsWindow: NSWindow?
@@ -290,10 +306,11 @@ enum HotKeys {
         menu.addItem(withTitle: m.info, action: nil, keyEquivalent: "").isEnabled = false
         menu.addItem(.separator())
         if s.isTimed { add(s.isPaused ? "Resume" : "Pause") { self.m.togglePause() } }
-        if s.phase == .ready, let a = s.app { add("Start session \(s.done + 1) (\(a.title))") { self.m.start(a) } }
+        if s.phase == .ready, let p = m.current { add("Start session \(s.done + 1) (\(p.name))") { self.m.start(p) } }
         if !s.isTimed { launcherItems().forEach(menu.addItem); menu.addItem(.separator()) }
         add("Insights…", "i", mods: .command) { self.openInsights() }
-        let searchOK = !(Policy.isGuarding(s) && s.app == .speakFit)
+        add("Focus profiles…") { self.openProfiles() }
+        let searchOK = !(Policy.isGuarding(s) && s.app == "SpeakFit")
         add("Search Google…", enabled: searchOK) { self.searchWindow.show() }
         add("Park an idea…  ⌃⌥⌘I") { self.panel.orderFrontRegardless(); self.m.beginField(.idea) }
         add(panel.isVisible ? "Hide Tomo" : "Show Tomo") { self.panel.isVisible ? self.m.hideTomo() : self.showTomo() }
@@ -312,6 +329,7 @@ struct SettingsView: View {
     @AppStorage("soundVolume") var volume = 0.35
     @AppStorage("soundMuted") var muted = false
     @AppStorage("breathing") var breathing = "cyclic"
+    @AppStorage("soundPalette") var palette = "mix"
     @State var login = SMAppService.mainApp.status == .enabled
 
     var body: some View {
@@ -325,6 +343,12 @@ struct SettingsView: View {
                 }
             Toggle("Mute Tomo", isOn: $muted)
             Slider(value: $volume, in: 0...1) { Text("Volume") }.disabled(muted)
+            Picker("Tomo's voice", selection: $palette) {
+                Text("Voice + juice (default)").tag("mix")
+                Text("Babble voice").tag("voice")
+                Text("Musical boops").tag("boops")
+                Text("Juicy sounds").tag("juicy")
+            }
             Picker("Break breathing", selection: $breathing) {
                 Text("Cyclic sighing (2 in, long out)").tag("cyclic")
                 Text("Box breathing (4-4-4-4)").tag("box")

@@ -5,7 +5,7 @@ import CoreAudio
 /// Every play draws fresh randomness (pitch about ±4%, timing, which droplets), because a sound that repeats
 /// identically is what makes a creature feel mechanical.
 enum Sound {
-    enum Cue: String, CaseIterable { case splash, ripe, start, nudge, hmmph, boil, siren, celebrate, park, inhale, exhale }
+    enum Cue: String, CaseIterable { case splash, ripe, start, nudge, hmmph, simmer, boil, siren, celebrate, park, inhale, exhale }
     enum Presence: String, CaseIterable { case hum, pop, rustle }
 
     static let rate = 44_100.0
@@ -16,6 +16,43 @@ enum Sound {
         play(palette.map { render(cue, palette: $0, seed: seed) } ?? render(cue, seed: seed), gain: 1)
     }
     static func play(_ p: Presence) { play(render(p, seed: .random(in: 1...UInt64.max)), gain: 0.5) }
+
+    // MARK: the siren: one continuous wail, looped seamlessly for as long as the siren stage lasts
+
+    nonisolated(unsafe) static var sirenPlayer: AVAudioPlayer?
+
+    /// A real siren's wail (the pitch sliding smoothly up and down, never stopping), made cute: a round tone
+    /// instead of a harsh square wave, a little vibrato, and Tomo's "ooo" an octave below. Exactly two
+    /// sweeps long, with the phase closed at the end, so the loop has no seam.
+    static func sirenLoop() -> [Float] {
+        let cycle = 2.4, n = Int(rate * cycle * 2), warm = Int(rate * cycle)
+        var out = [Float](repeating: 0, count: n + warm)   // one extra sweep warms the filter, then is dropped
+        var phase = 0.0, phase2 = 0.0
+        var oo = Biquad(bandpass: 420, q: 4)
+        for j in 0..<(n + warm) {
+            let t = Double(j) / rate
+            let sweep = 0.5 - 0.5 * cos(2 * .pi * t / cycle)                 // 0 → 1 → 0, smooth at both ends
+            let f = (640 + 520 * sweep) * (1 + 0.006 * sin(2 * .pi * 6.25 * t))   // 6.25 Hz: whole wobbles per loop
+            phase += 2 * .pi * f / rate; phase2 += 2 * .pi * f / 2 / rate
+            let tone = sin(phase) + 0.22 * sin(2 * phase) + 0.06 * sin(3 * phase)
+            var buzz = 0.0
+            for h in 1...8 { buzz += sin(phase2 * Double(h)) / pow(Double(h), 1.2) }
+            out[j] = Float(0.55 * tone + 0.35 * oo.run(buzz))
+        }
+        let loop = Array(out[warm...])
+        let m = loop.map(abs).max() ?? 1   // normalize only: no fades, they would put a gap in the loop
+        return loop.map { $0 / m * 0.45 }
+    }
+
+    static func startSiren() {
+        guard sirenPlayer == nil, !UserDefaults.standard.bool(forKey: "soundMuted"),
+              let p = try? AVAudioPlayer(data: wav(sirenLoop())) else { return }
+        p.numberOfLoops = -1
+        p.volume = Float(UserDefaults.standard.object(forKey: "soundVolume") as? Double ?? 0.35) * 0.8
+        p.play(); sirenPlayer = p
+    }
+
+    static func stopSiren() { sirenPlayer?.stop(); sirenPlayer = nil }
 
     static func play(_ samples: [Float], gain: Float) {
         let d = UserDefaults.standard
@@ -174,6 +211,10 @@ enum Sound {
         case .hmmph:
             voice(&out, at: 0.02, dur: 0.34, pitch: { 300 * p * (1 - 0.3 * $0) }, formants: nasal, breath: 0.15, amp: 0.6, rng: &rng)
             squelch(&out, at: 0.33, dur: 0.1, from: 2400, to: 1600, amp: 0.6, rng: &rng)   // the "ph" breath puff
+        case .simmer:
+            // a kettle starting: slow, low bubbles and a rising grumble
+            for _ in 0..<9 { bubble(&out, at: rng.range(0, 0.9), f0: rng.range(220, 420) * p, tau: rng.range(0.03, 0.06), amp: rng.range(0.15, 0.3)) }
+            voice(&out, at: 0.05, dur: 0.6, pitch: { 170 * p * (1 + 0.15 * $0) }, formants: [(500, 4, 1), (900, 6, 0.4)], breath: 0.35, amp: 0.4, rng: &rng)
         case .boil:
             for _ in 0..<26 { bubble(&out, at: rng.range(0, 1.3), f0: rng.range(250, 700) * p, tau: rng.range(0.02, 0.05), amp: rng.range(0.1, 0.3)) }
             var lp = Biquad(lowpass: 220)

@@ -10,7 +10,7 @@ struct TomoScene: Equatable {
     var mode: Mode = .idle
     var progress: Double = 0     // through focus or break, 0...1
     var phaseT: Double = 9       // seconds since a timed mode began (splash, rest grow-in, entrance, celebrate)
-    var app: FocusApp?
+    var app: String?
     var harvested = 0
     var hold: Double = 0         // press-and-hold ring, 0...1
     var dark = false

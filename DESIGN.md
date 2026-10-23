@@ -224,3 +224,46 @@ the user chose both: an app anyone can install and plug their own apps into, and
 | Siren stays on Tomo | Centre-screen or screen-edge flash (he didn't choose; the evidence favours a visible way out over a trap) |
 | Chrome: rules + on-device check every 2 s | An AI key or screenshots (D11) |
 | Outcomes in insights (lessons, takes, applications) | Next version: needs each app's outcome extras |
+
+## 6c. Tomo's voice (23 Oct 2026, replaces 6b's set)
+
+Feedback on 0.2: the sounds were "not original nor cute". Redesigned as one character voice, the way loved game characters get theirs: Animal Crossing's Animalese strings tiny sped-up syllables, pitches them per character, and moves the pitch with mood (happy higher, cross lower), chosen over random "beep speech" because it feels "foreign yet familiar" ([Nookipedia](https://nookipedia.com/wiki/Animalese)).
+
+- **Identity:** pitch centred near 520 Hz (a small creature, above a human voice), soft rounded timbre, ~80 ms syllables, rising contours for happy or curious, falling for grumpy or sleepy, a little different every play.
+- **Palette (chosen 23 Oct: "mix a and c"):** A, babble voice, for how Tomo feels (rising "ta-da", curious "oo?", "hm-mph", a grumbly "grrr", giggles), layered over C, juicy foley, for what physically happens (pops, squelches, bubbles, the splash, leaf rustles). B, musical boops, stays available. Setting: `soundPalette` = mix | voice | boops | juicy.
+- **Siren:** a real siren's continuous wail (pitch sliding 640 to 1160 Hz and back every 2.4 s), made cute with a round tone, light vibrato and Tomo's "ooo" an octave below, looped seamlessly for as long as the siren stage lasts and stopped the instant it ends ("it buzzes constantly rather than vivu and stop in between").
+- **Every rung has a sound:** nudge "oo?", hmmph, simmer (a kettle starting to grumble), boil, siren.
+
+## 14. 0.4: profiles, any app, websites in any browser
+
+**Profiles.** A session belongs to a profile: a target (an app, a website, or Other) plus the apps allowed to stay visible and a default length. Setup (first run) and Edit share one window: pick any installed app (icons, search); if the app is a browser, an "Add links" box appears: paste URLs, the registered domain is kept (github.com/you/repo → github.com), any page on it counts, subdomains optional (default on). Allowed apps are suggested from the browsers and AI apps on the Mac. Apps that post the focus contract (presets for the three apps Pomodoro was built with) are only offered when installed; a fresh Mac starts with Other and the setup window.
+
+**When the clock starts.** Apps that post the contract: on their task start. Other apps: when picked in the launcher. Websites: the first time one of the profile's pages is the front tab. Other: when the task is typed.
+
+**Recognising apps (no permission).** A browser is any app Launch Services registers to open https links, except AI apps that also do (ChatGPT). Groups (browser, AI, code, chat, notes) come from a small known list, then the app's App Store category.
+
+**Browser support tiers**, read from each browser's own scripting dictionary without running anything:
+
+| Tier | Browsers | What Tomo knows |
+|---|---|---|
+| Full | Chromium family (Chrome, Brave, Edge, Vivaldi, Arc, Opera, Comet) and Safari family (Safari, Orion) | the front tab's address and title; asks once per browser for Automation permission |
+| Title only | Firefox, Zen and other browsers without tab scripting | nothing yet: reading another app's window title needs Screen Recording (window names via CGWindowList) or Accessibility, so it stays off until the user grants one |
+| Unsupported | anything that isn't a browser | treated as a plain app |
+
+Tested on this Mac (23 Oct 2026, from the dictionaries): Chrome full (Chromium), Safari full (Safari), Comet full (Chromium).
+
+**How Tomo knows what you're doing (layers).** Every session is labelled with the richest layer that applied.
+
+| Layer | Works for | What it uses | Permission |
+|---|---|---|---|
+| L0 | any app, zero setup | which app is in front (NSWorkspace) and seconds since the last key or mouse event (CGEventSource; never the keys) | none |
+| L1 | websites in browsers | the front tab's address and title (tiers above) | Automation, per browser |
+| L2 | richer task names | another app's window title | Screen Recording or Accessibility; off unless granted |
+| L3 | apps and tools that report | the focus notification (`pomodoro.focus`, alias `com.aniket.focus`), the `tomo` command line, the MCP server | none |
+| L4 | anything else | Other: the task you type | none |
+
+**What is stored** (all in `~/Library/Application Support/Pomodoro/`, nothing sent anywhere): `state.json` (today: phase, profile, task, seconds), `sessions.sqlite` (each task segment: day, profile, task, start, end, active, elapsed, idle, off-task and paused seconds; and events: stage changes, hidden apps by bundle id, contract events), `profiles.json`, `full-harvests.json` (dates), `sessions.jsonl` (a debug log). Never stored: keystrokes, page contents, screenshots, full URLs (only the host is kept in memory for matching).
+
+**`tomo` and MCP.** `tomo start "task" [--app NAME]`, `end`, `activity`, `idea "..."`, `status`, `today`, and `tomo mcp`, a local stdio MCP server (tools: get_status, start_session, end_session, park_idea, today_summary). It runs as the user's own process, so it needs no key; nothing listens on the network.
+
+**Works on other Macs.** Minimum macOS 14 (Sonoma): the two-argument `onChange` and `NSApp.activate()` set the floor. Universal binary (Apple silicon and Intel). Ad-hoc signed, not notarized (notarization needs a paid Apple Developer ID), so first launch is right-click → Open.

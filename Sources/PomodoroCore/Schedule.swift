@@ -1,13 +1,5 @@
 import Foundation
 
-/// The study apps a session can belong to, plus Other (a typed task, worked on in Chrome or Preview).
-public enum FocusApp: String, Codable, CaseIterable, Sendable {
-    case hackerSolve = "HackerSolve", speakFit = "SpeakFit", northstar = "NorthstarViewer", other = "Other"
-
-    public var title: String { self == .northstar ? "Northstar" : rawValue }
-    public static var launchable: [FocusApp] { [.hackerSolve, .speakFit, .northstar] }
-}
-
 public enum Phase: String, Codable, Sendable {
     case idle        // nothing open
     case armed       // a study app is open; the clock waits until a task actually starts
@@ -57,7 +49,9 @@ public enum ScheduleEvent: Equatable, Sendable {
 public struct DayState: Codable, Equatable, Sendable {
     public var day: String
     public var phase: Phase = .idle
-    public var app: FocusApp?
+    /// The session's profile id; `appName` is its display name.
+    public var app: String?
+    public var appName: String?
     public var task: String?
     public var taskId: String?
     /// Finished sessions today.
@@ -85,7 +79,8 @@ public struct DayState: Codable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         day = try c.decode(String.self, forKey: .day)
         phase = (try? c.decodeIfPresent(Phase.self, forKey: .phase)) ?? .idle
-        app = try? c.decodeIfPresent(FocusApp.self, forKey: .app)
+        app = try? c.decodeIfPresent(String.self, forKey: .app)
+        appName = (try? c.decodeIfPresent(String.self, forKey: .appName)) ?? app
         task = try? c.decodeIfPresent(String.self, forKey: .task)
         taskId = try? c.decodeIfPresent(String.self, forKey: .taskId)
         done = (try? c.decodeIfPresent(Int.self, forKey: .done)) ?? 0
@@ -136,25 +131,25 @@ public struct DayState: Codable, Equatable, Sendable {
     // MARK: transitions
 
     /// A study app is open: arm, but do not start the clock.
-    public mutating func arm(app: FocusApp) {
+    public mutating func arm(app: String, name: String? = nil) {
         guard phase == .idle || phase == .armed || phase == .dayDone else { return }
         if phase != .dayDone { phase = .armed }
-        self.app = app
+        self.app = app; appName = name ?? app
     }
 
     /// Starts a session from anywhere but a running one. Returns false if a session is already under way.
     @discardableResult
-    public mutating func startFocus(app: FocusApp, task: String?, taskId: String? = nil, target: TimeInterval? = nil, now: Date, _ d: Durations) -> Bool {
+    public mutating func startFocus(app: String, name: String? = nil, task: String?, taskId: String? = nil, target: TimeInterval? = nil, now: Date, _ d: Durations) -> Bool {
         guard phase != .focus else { return false }
-        phase = .focus; self.app = app; self.task = task; self.taskId = taskId
+        phase = .focus; self.app = app; appName = name ?? app; self.task = task; self.taskId = taskId
         self.target = target ?? d.focus
         elapsed = 0; active = 0; paused = false; lastTick = now; focusStartedAt = now
         return true
     }
 
     /// Moves the running session to another app or task without restarting the clock.
-    public mutating func retag(app: FocusApp, task: String?, taskId: String?) {
-        self.app = app
+    public mutating func retag(app: String, name: String? = nil, task: String?, taskId: String?) {
+        self.app = app; appName = name ?? app
         if let task, !task.isEmpty { self.task = task }
         if taskId != nil { self.taskId = taskId }
     }
@@ -193,7 +188,7 @@ public struct DayState: Codable, Equatable, Sendable {
         advance(to: now, working: working)
         if phase == .focus, active >= target {
             done += 1; events.append(.focusEnded(count: done))
-            tasks = (tasks ?? []) + [task?.isEmpty == false ? task! : app?.title ?? "Focus"]
+            tasks = (tasks ?? []) + [task?.isEmpty == false ? task! : appName ?? app ?? "Focus"]
             focusStartedAt = nil
             phase = .breakTime; elapsed = 0; lastTick = now
             if dayActive >= d.dayGoal && !celebrated { celebrated = true; events.append(.dayDone) }

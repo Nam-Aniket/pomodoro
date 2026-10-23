@@ -37,6 +37,14 @@ if let i = args.firstIndex(of: "--sounds"), i + 1 < args.count {
     exit(0)
 }
 
+// One copy only: two copies would both write state.json and count sessions twice (23 Oct incident).
+// A second launch fronts the running copy and exits.
+if let id = Bundle.main.bundleIdentifier,
+   let other = NSRunningApplication.runningApplications(withBundleIdentifier: id).first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
+    other.activate()
+    exit(0)
+}
+
 MainActor.assumeIsolated {
     let app = NSApplication.shared
     let delegate = AppDelegate()

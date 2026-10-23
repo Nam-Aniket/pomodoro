@@ -11,47 +11,52 @@ public enum Policy {
         "com.apple.loginwindow", "com.apple.SecurityAgent",
     ]
 
-    /// Extra apps each session allows (DESIGN.md section 5). Google search lives in Tomo's own window.
-    public static let extras: [FocusApp: Set<String>] = [
-        .speakFit: [],
-        .hackerSolve: [],
-        .northstar: ["com.google.Chrome", "com.apple.Preview", "com.anthropic.claudefordesktop"],
-        .other: ["com.google.Chrome", "com.apple.Preview"],
-    ]
-
-    /// Example presets: the three apps Pomodoro was first built around. Profiles for any app replace these in 0.4.
-    public static func focusApp(bundleID: String?) -> FocusApp? {
-        switch bundleID {
-        case "com.aniketnamjoshi.speakfit": .speakFit
-        case "com.aniket.northstar.viewer": .northstar
-        case let id? where id == "com.aniketnamjoshi.hackersolve" || id.hasPrefix("com.aniketnamjoshi.hackersolve."): .hackerSolve
-        default: nil
-        }
-    }
-
     /// Blocking runs through focus and the break (D3) and stops when paused, ready or idle.
     public static func isGuarding(_ s: DayState) -> Bool { s.isTimed && !s.isPaused }
 
-    public static func mayFront(bundleID: String?, bundlePath: String?, isRegular: Bool, isSelf: Bool, session: FocusApp?) -> Bool {
-        if isSelf || !isRegular { return true }
-        guard let id = bundleID else { return true }   // ponytail: an app with no bundle id is too odd to touch
-        if safety.contains(id) { return true }
-        if bundlePath?.hasPrefix("/System/Library/CoreServices/") == true { return true }
-        guard let session else { return true }
-        // Any study app may come forward: switching tasks moves the session (23 Oct incident: 0.1.0 hid
-        // SpeakFit four times while the user tried to open it).
-        if focusApp(bundleID: id) != nil { return true }
-        return extras[session, default: []].contains(id)
+    /// What is in front right now.
+    public struct Front: Sendable {
+        public var bundleID: String?, path: String?, isRegular = true, isSelf = false, isBrowser = false
+        /// The front tab's host, when the front app is a browser that can report it.
+        public var host: String?
+        public init(bundleID: String?, path: String? = nil, isRegular: Bool = true, isSelf: Bool = false, isBrowser: Bool = false, host: String? = nil) {
+            self.bundleID = bundleID; self.path = path; self.isRegular = isRegular; self.isSelf = isSelf; self.isBrowser = isBrowser; self.host = host
+        }
     }
 
-    /// Whether time in the front app counts as working on the session's task (the active clock).
+    /// May this app stay visible during the session? Hiding is the only action; nothing is ever quit.
+    /// `contractTargets` are the apps of profiles that post the focus contract: they are never hidden, because
+    /// switching to one moves the session (23 Oct incident: 0.1.0 hid SpeakFit four times while the user tried
+    /// to open it).
+    public static func mayFront(_ f: Front, profile: Profile?, contractTargets: [String] = []) -> Bool {
+        if f.isSelf || !f.isRegular { return true }
+        guard let id = f.bundleID else { return true }   // ponytail: an app with no bundle id is too odd to touch
+        if safety.contains(id) { return true }
+        if f.path?.hasPrefix("/System/Library/CoreServices/") == true { return true }
+        guard let p = profile else { return true }
+        if contractTargets.contains(where: { id == $0 || id.hasPrefix($0 + ".") }) { return true }
+        if p.isTarget(id) || p.allowed.contains(id) { return true }
+        if p.kind == .website, f.isBrowser { return p.browsers.isEmpty || p.browsers.contains(id) }
+        return false
+    }
+
+    /// Does time in the front app count as working on the profile's task (the active clock)?
     /// Allowed is not the same as on task: Finder or Terminal stay reachable but do not fill the tomato.
-    public static func onTask(bundleID: String?, isSelf: Bool, session: FocusApp?) -> Bool {
-        guard let session else { return false }
-        if isSelf { return true }                       // Tomo's own search window
-        guard let id = bundleID else { return false }
-        if focusApp(bundleID: id) == session { return true }
-        return extras[session, default: []].contains(id)
+    /// A website profile is on task only while the browser's front tab is on one of its domains.
+    public static func onTask(_ f: Front, profile: Profile?) -> Bool {
+        guard let p = profile else { return false }
+        if f.isSelf { return true }                       // Tomo's own search window
+        guard let id = f.bundleID else { return false }
+        switch p.kind {
+        case .app: return p.isTarget(id) || p.allowed.contains(id)
+        case .other: return p.allowed.contains(id) || f.isBrowser
+        case .website:
+            if f.isBrowser && (p.browsers.isEmpty || p.browsers.contains(id)) {
+                guard let h = f.host else { return true }    // can't read the tab: judged on input alone
+                return Domain.matches(host: h, domains: p.domains, includeSubdomains: p.includeSubdomains)
+            }
+            return p.allowed.contains(id)
+        }
     }
 }
 
@@ -60,16 +65,19 @@ public struct FocusEvent: Equatable, Sendable {
     /// v2 adds `activity`: posted on real work (slide advance, answer, recording start or stop, edit, save),
     /// at most about once every 30 s per app. v1 posters keep working unchanged.
     public enum Kind: String, Sendable { case start, end, activity }
-    public let app: FocusApp
+    /// The posting app's contract name (matched against `Profile.contractApp`).
+    public let app: String
     public let phase: Kind
     public let task: String
     public let extras: [String: String]
 
     public static let name = "com.aniket.focus"
+    /// The product-neutral name for the public release. Pomodoro listens on both; `name` stays as an alias.
+    public static let publicName = "pomodoro.focus"
 
     public init?(userInfo: [AnyHashable: Any]?) {
         guard let info = userInfo,
-              let app = (info["app"] as? String).flatMap(FocusApp.init(rawValue:)),
+              let app = (info["app"] as? String).map({ $0.trimmingCharacters(in: .whitespaces) }), !app.isEmpty,
               let phase = (info["phase"] as? String).flatMap(Kind.init(rawValue:)) else { return nil }
         self.app = app; self.phase = phase
         task = (info["task"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -109,12 +117,12 @@ public struct ParkingLot: Sendable {
                     ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Pomodoro/ideas-inbox.md")) { self.file = file }
 
     @discardableResult
-    public func park(_ idea: String, app: FocusApp?, task: String?, now: Date) throws -> URL {
+    public func park(_ idea: String, app: String?, task: String?, now: Date) throws -> URL {
         let text = idea.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
         guard !text.isEmpty else { return file }
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         let f = DateFormatter(); f.locale = Locale(identifier: "en_AU_POSIX"); f.dateFormat = "yyyy-MM-dd HH:mm"
-        let where_ = [app?.rawValue ?? "General", task.flatMap { $0.isEmpty ? nil : $0 }].compactMap { $0 }.joined(separator: " · ")
+        let where_ = [app ?? "General", task.flatMap { $0.isEmpty ? nil : $0 }].compactMap { $0 }.joined(separator: " · ")
         let line = "- [ ] \(f.string(from: now)) · \(where_): \(text)\n"
         if let h = try? FileHandle(forWritingTo: file) {
             h.seekToEndOfFile(); h.write(Data(line.utf8)); try h.close()
@@ -135,15 +143,15 @@ public enum TopicRules {
                       "primevideo.com", "hotstar.com", "disneyplus.com", "cricbuzz.com", "espncricinfo.com", "9gag.com",
                       "twitch.tv", "discord.com", "web.whatsapp.com", "amazon.com", "amazon.com.au", "ebay.com", "ebay.com.au",
                       "linkedin.com/feed", "news.google.com", "news.yahoo.com"]
-    static let on: [FocusApp: [String]] = [
-        .northstar: ["seek.com.au", "linkedin.com/jobs", "indeed.com", "greenhouse.io", "lever.co", "myworkdayjobs.com", "workday.com",
+    static let on: [String: [String]] = [
+        "NorthstarViewer": ["seek.com.au", "linkedin.com/jobs", "indeed.com", "greenhouse.io", "lever.co", "myworkdayjobs.com", "workday.com",
                      "smartrecruiters.com", "ashbyhq.com", "glassdoor.com", "jora.com", "docs.google.com", "mail.google.com", "claude.ai"],
-        .other: ["claude.ai", "docs.google.com"],
+        "Other": ["claude.ai", "docs.google.com"],
     ]
     /// Video sites can be a tutorial or a distraction: the title decides.
     static let titleDecides = ["youtube.com", "youtu.be", "vimeo.com"]
 
-    public static func judge(url: String, app: FocusApp) -> Verdict {
+    public static func judge(url: String, app: String) -> Verdict {
         guard let u = URL(string: url), let host = u.host?.lowercased() else { return .unsure }
         let h = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
         let hp = h + u.path.lowercased()

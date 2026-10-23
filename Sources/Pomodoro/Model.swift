@@ -23,6 +23,8 @@ import PomodoroCore
     let db: SessionDB
     let lot = ProcessInfo.processInfo.environment["POMODORO_LOT"].map { ParkingLot(file: URL(fileURLWithPath: $0)) } ?? ParkingLot()
     let watcher = ChromeWatcher()
+    let profileStore: ProfileStore
+    @Published var profiles: [Profile] = []
     let launched = Date()
     enum Moment { case splash, entrance }
     var moment: (kind: Moment, at: Date)?
@@ -31,8 +33,7 @@ import PomodoroCore
     private var glanceUntil = Date.distantPast, nextGlance = Date().addingTimeInterval(25)
     private var nextBeat = Date().addingTimeInterval(20)
     private var nextPresence = Date().addingTimeInterval(.random(in: 40...90))
-    private var nextSiren = Date.distantPast
-    var lastActivity: [FocusApp: Date] = [:]
+    var lastActivity: [String: Date] = [:]
     var hideTomo: () -> Void = {}
     var nudgeUntil: Date?
     var bubbleUntil: Date?
@@ -62,14 +63,21 @@ import PomodoroCore
         let home = ProcessInfo.processInfo.environment["POMODORO_HOME"].map { URL(fileURLWithPath: $0) }
         store = home.map { Store(root: $0) } ?? Store()
         db = SessionDB(url: store.root.appendingPathComponent("sessions.sqlite"))
+        profileStore = ProfileStore(root: store.root)
         state = store.load(now: Date())
         if let k = ProcessInfo.processInfo.environment["POMODORO_LADDER_SCALE"].flatMap(Double.init) { Ladder.timeScale = k }
+        // POMODORO_FRESH (tests only) pretends none of the preset apps are installed: a friend's Mac.
+        let fresh = ProcessInfo.processInfo.environment["POMODORO_FRESH"] != nil
+        profiles = profileStore.load(installed: { !fresh && NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil })
         if state.isPaused { say("Paused at \(clock(state.active)). Hold me to carry on.", for: 8) }
         else if state.phase == .ready { say("Ripe! Tap me to start session \(state.done + 1).", for: 8) }
         else if state.phase == .idle || state.phase == .armed { say("Hi, I'm Tomo. Tap me to pick what we're working on.", for: 7) }
         if state.isTimed { segStart = Date() }
+        // A title only lives as long as the event that set it: after a restart the app's name shows until the
+        // app reports its task again (23 Oct: a stale "Lesson 4" stuck for hours).
+        state.task = nil; state.taskId = nil
         observe()
-        if let a = NSWorkspace.shared.frontmostApplication.flatMap({ Policy.focusApp(bundleID: $0.bundleIdentifier) }) { arm(a) }
+        if let a = NSWorkspace.shared.frontmostApplication.flatMap({ profileFor(bundleID: $0.bundleIdentifier) }) { arm(a) }
         store.log(["type": "launch", "accessibility": AXIsProcessTrusted() ? "granted" : "not granted", "at": iso(Date())])
         // .common so the clock keeps ticking while a mouse button is held (event-tracking run loop mode)
         RunLoop.main.add(Timer(timeInterval: 1, repeats: true) { _ in MainActor.assumeIsolated { self.tick() } }, forMode: .common)
@@ -93,7 +101,7 @@ import PomodoroCore
 
     /// Hard guards: silent for the whole of a SpeakFit session (or Tomo ends up in the practice recording),
     /// whenever any app is recording from the mic (calls, meetings, dictation), and when the Mac is muted.
-    var soundAllowed: Bool { !(state.app == .speakFit && state.isTimed) && !Sound.micInUse && !Sound.systemMuted }
+    var soundAllowed: Bool { !(state.app == "SpeakFit" && state.isTimed) && !Sound.micInUse && !Sound.systemMuted }
     func cue(_ c: Sound.Cue) { if soundAllowed { Sound.play(c) } }
 
     func scene(at now: Date, dark: Bool) -> TomoScene {
@@ -166,7 +174,7 @@ import PomodoroCore
         return look
     }
 
-    var taskLabel: String { state.task?.isEmpty == false ? state.task! : state.app?.title ?? "this" }
+    var taskLabel: String { state.task?.isEmpty == false ? state.task! : state.appName ?? "this" }
 
     var info: String {
         switch state.phase {
@@ -178,7 +186,7 @@ import PomodoroCore
             return inBreathing ? "Breathe with me · tap to skip" : "\(Int(state.remaining(d) / 60) + 1) min of rest left"
         case .ready: return "Tap to start session \(state.done + 1)"
         case .dayDone: return "Full harvest · \(Int(state.dayActive / 60)) active min today"
-        case .armed: return "\(state.app?.title ?? "App") is open · the clock starts with a task"
+        case .armed: return current?.contractApp != nil ? "\(state.appName ?? "App") is open · the clock starts with a task" : "Tap to start \(state.appName ?? "a session")"
         case .idle: return String(format: "%.1f of %d tomatoes today", state.harvest(d), d.perDay)
         }
     }
@@ -209,11 +217,12 @@ import PomodoroCore
     private func assess(_ now: Date) -> (active: Bool, trouble: Ladder.Trouble) {
         guard state.phase == .focus, !state.paused else { return (false, .none) }
         let front = NSWorkspace.shared.frontmostApplication
-        let onTask = Policy.onTask(bundleID: front?.bundleIdentifier, isSelf: front?.processIdentifier == me, session: state.app)
+        let onTask = Policy.onTask(frontInfo(front), profile: current)
         let inputIdle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: Self.anyInput)
         let sinceProgress = state.app.flatMap { lastActivity[$0] }.map { now.timeIntervalSince($0) }
         working = Ladder.isWorking(inputIdle: inputIdle, sinceProgress: sinceProgress)
-        let onTopic = !(front?.bundleIdentifier == "com.google.Chrome" && watcher.verdict == .offTopic)
+        // topic rules apply to Northstar and Other sessions; website profiles are judged by domain in onTask
+        let onTopic = !(front.map { Self.browserIDs.contains($0.bundleIdentifier ?? "") } ?? false) || current?.kind == .website || watcher.verdict != .offTopic
         if !onTask || !onTopic { return (false, .offTask) }
         if !working { return (false, .notWorking) }
         return (true, .none)
@@ -227,8 +236,12 @@ import PomodoroCore
         } else if state.isPaused { segPaused += 1 }
         updateLadder(t, now)
         // the Chrome watcher only runs where Chrome is allowed, while a session is running
-        watcher.app = state.app ?? .other
-        watcher.task = state.phase == .focus && (state.app == .northstar || state.app == .other) ? taskLabel : nil
+        // the tab watcher reads the front browser tab: topic rules for Northstar and Other, the domain for websites
+        watcher.app = state.app ?? "Other"
+        watcher.task = [.focus, .armed].contains(state.phase) && (current?.kind == .website || state.app == "NorthstarViewer" || state.app == "Other") ? taskLabel : nil
+        // a website profile's clock starts the first time one of its pages is in front
+        if state.phase == .armed, current?.kind == .website, Policy.onTask(frontInfo(NSWorkspace.shared.frontmostApplication), profile: current),
+           watcher.host != nil, let p = current { start(p) }
         for e in state.tick(now: now, active: active, d) { handle(e, now) }
         if let u = bubbleUntil, now > u { bubble = nil; bubbleUntil = nil }
         presence(now)
@@ -242,10 +255,9 @@ import PomodoroCore
         if t != trouble { trouble = t; troubleSince = t == .none ? nil : now }
         if t == .none { if calmSince == nil { calmSince = now } } else { calmSince = nil }
         let next = Ladder.stage(t, seconds: troubleSince.map { now.timeIntervalSince($0) } ?? 0)
-        if next == stage {
-            if next == .siren && now > nextSiren { cue(.siren); nextSiren = now.addingTimeInterval(4) }
-            return
-        }
+        // the siren wails continuously while the stage lasts, and stops the moment it ends or sound must stop
+        if next == .siren && soundAllowed { Sound.startSiren() } else { Sound.stopSiren() }
+        if next == stage { return }
         let was = stage
         stage = next
         if next > was {
@@ -253,12 +265,12 @@ import PomodoroCore
             switch next {
             case .nudge: react(.wobble); cue(.nudge); say("Hm? \(what)", for: 4)
             case .hmmph: react(.puff); cue(.hmmph); say("Hmmph. \(what)", for: 6)
-            case .simmer: say("Still off track... back to \(taskLabel)?", for: 6)
+            case .simmer: cue(.simmer); say("Still off track... back to \(taskLabel)?", for: 6)
             case .boil: cue(.boil); say("BACK. TO. \(taskLabel.uppercased()).", for: 8)
-            case .siren: cue(.siren); nextSiren = now.addingTimeInterval(4); say("WEE-WOO! \(taskLabel). Tap me when you're back.", for: 30)
+            case .siren: say("WEE-WOO! \(taskLabel). Tap me when you're back.", for: 30)
             case .calm: break
             }
-            db.event("stage-\(next)", app: state.app?.rawValue, detail: t.rawValue, at: now)
+            db.event("stage-\(next)", app: state.app, detail: t.rawValue, at: now)
         } else if next == .calm && was >= .hmmph {
             react(.hop); say("There you are. Back to it.", for: 3)
         }
@@ -271,7 +283,7 @@ import PomodoroCore
             cue(.splash)
             recordSegment(completed: true, now)
             skipBreathing = false
-            store.log(["type": "focus", "app": state.app?.rawValue ?? "", "task": state.task ?? "", "count": "\(n)", "end": iso(now)])
+            store.log(["type": "focus", "app": state.app ?? "", "task": state.task ?? "", "count": "\(n)", "end": iso(now)])
             if state.celebrated && state.dayActive >= d.dayGoal && state.tasks?.count == n {
                 let days = store.recordFullHarvest(day: state.day)
                 let list = (state.tasks ?? []).joined(separator: ", ")
@@ -324,34 +336,69 @@ import PomodoroCore
 
     /// Writes the current task's stretch of the session to the store and starts a fresh segment.
     private func recordSegment(completed: Bool, _ now: Date) {
-        guard let start = segStart, let app = state.app, segElapsed > 0 || segActive > 0 else { segStart = state.isTimed ? now : nil; return }
-        db.add(.init(day: state.day, app: app.rawValue, task: taskLabel, taskId: state.taskId, start: start, end: now,
+        guard let start = segStart, let app = state.appName ?? state.app, segElapsed > 0 || segActive > 0 else { segStart = state.isTimed ? now : nil; return }
+        db.add(.init(day: state.day, app: app, task: taskLabel, taskId: state.taskId, start: start, end: now,
                      active: segActive, elapsed: segElapsed, idle: segIdle, offTask: segOff, paused: segPaused, completed: completed))
         segStart = now; segActive = 0; segElapsed = 0; segIdle = 0; segOff = 0; segPaused = 0
     }
 
     /// A study app is open (launched, switched to, or picked): arm Tomo; the clock waits for a task.
-    func arm(_ app: FocusApp) {
+    func arm(_ p: Profile) {
         guard [.idle, .armed, .dayDone].contains(state.phase) else { return }
         let was = state.app
-        state.arm(app: app)
-        if was != app || state.phase == .armed {
-            say(app == .speakFit ? "SpeakFit is open. I'll start when your session starts." :
-                app == .northstar ? "Northstar is open. I'll start when you open a job." :
-                "HackerSolve is open. I'll start when you open a lesson.", for: 6)
+        state.arm(app: p.id, name: p.name)
+        if was != p.id {
+            say(p.id == "SpeakFit" ? "SpeakFit is open. I'll start when your session starts." :
+                p.id == "NorthstarViewer" ? "Northstar is open. I'll start when you open a job." :
+                p.id == "HackerSolve" ? "HackerSolve is open. I'll start when you open a lesson." :
+                p.kind == .website ? "\(p.name): I'll start when you open it in your browser." :
+                "\(p.name) is open. Tap me to start.", for: 6)
         }
         onChange()
     }
 
-    func start(_ app: FocusApp, task: String? = nil, taskId: String? = nil) {
-        let resumeTask = state.phase == .ready && state.app == app ? state.task : nil
+    // MARK: profiles
+
+    var current: Profile? { state.app.flatMap { id in profiles.first { $0.id == id } } }
+    func profile(_ id: String) -> Profile? { profiles.first { $0.id == id } }
+    /// The app profile whose target this app is.
+    func profileFor(bundleID: String?) -> Profile? {
+        guard let id = bundleID else { return nil }
+        return profiles.first { $0.kind == .app && $0.isTarget(id) }
+    }
+    /// The profile that matches a contract poster: by its contract name, else by profile name.
+    func profileFor(contract app: String) -> Profile? {
+        profiles.first { $0.contractApp == app } ?? profiles.first { $0.name.caseInsensitiveCompare(app) == .orderedSame }
+    }
+    var contractTargets: [String] { profiles.filter { $0.contractApp != nil }.compactMap(\.appID) }
+
+    func frontInfo(_ app: NSRunningApplication?) -> Policy.Front {
+        let id = app?.bundleIdentifier
+        let browser = id.map { Self.browserIDs.contains($0) } ?? false
+        return Policy.Front(bundleID: id, path: app?.bundleURL?.path, isRegular: app?.activationPolicy == .regular,
+                            isSelf: app?.processIdentifier == me, isBrowser: browser, host: browser ? watcher.host : nil)
+    }
+
+    /// Apps registered to open web pages: the browsers (Launch Services, no permission needed).
+    /// AI apps that also register for web links (ChatGPT does) are treated as apps, not browsers.
+    static let browserIDs: Set<String> = Set(NSWorkspace.shared.urlsForApplications(toOpen: URL(string: "https://example.com")!)
+        .compactMap { url -> String? in
+            guard let id = Bundle(url: url)?.bundleIdentifier else { return nil }
+            return AppCatalog.group(id: id, name: url.deletingPathExtension().lastPathComponent, url: url) == .ai ? nil : id
+        })
+
+    func saveProfiles(_ p: [Profile]) { profiles = p; profileStore.save(p) }
+
+    func start(_ p: Profile, task: String? = nil, taskId: String? = nil) {
+        let app = p.id
         let now = Date()
-        guard state.startFocus(app: app, task: task ?? resumeTask, taskId: taskId, target: Double(sessionMinutes) * 60, now: now, d) else { return }
+        let minutes = state.app == app && UserDefaults.standard.object(forKey: "sessionMinutes") != nil ? sessionMinutes : p.minutes
+        guard state.startFocus(app: app, name: p.name, task: task, taskId: taskId, target: Double(minutes) * 60, now: now, d) else { return }
         segStart = now; segActive = 0; segElapsed = 0; segIdle = 0; segOff = 0; segPaused = 0
         stage = .calm; trouble = .none; troubleSince = nil; calmSince = now
         lastActivity[app] = now
-        store.log(["type": "start", "app": app.rawValue, "task": state.task ?? "", "at": iso(now)])
-        say("\(app == .other ? "" : app.title + ", ")\(taskLabel == app.title ? "" : taskLabel + ". ")\(sessionMinutes) minutes. Let's grow one.", for: 6)
+        store.log(["type": "start", "app": app, "task": state.task ?? "", "at": iso(now)])
+        say("\(p.kind == .other ? "" : p.name + ", ")\(taskLabel == p.name ? "" : taskLabel + ". ")\(minutes) minutes. Let's grow one.", for: 6)
         react(.hop); cue(.start)
         hideOthers()
         save(); onChange()
@@ -369,6 +416,7 @@ import PomodoroCore
 
     /// Emergency exit: stops all hiding at once and brings back every app Tomo hid.
     func emergencyExit() {
+        Sound.stopSiren()
         if state.phase == .focus { recordSegment(completed: false, Date()) }
         state.stop(d)
         stage = .calm; trouble = .none; troubleSince = nil; compact = false
@@ -383,7 +431,7 @@ import PomodoroCore
         if onLeaf { beginField(.idea); return }
         if stage >= .nudge { calmDown(); return }
         switch state.phase {
-        case .ready: if let a = state.app { start(a) }
+        case .ready: if let p = current { start(p) }
         case .breakTime where inBreathing: skipBreathing = true; say("OK, just rest then.", for: 3)
         case .idle, .armed, .dayDone: showLauncher?()
         default: if state.isPaused { togglePause() } else { say(info, for: 3) }
@@ -399,21 +447,28 @@ import PomodoroCore
     var showLauncher: (() -> Void)?
 
     /// Launcher: open the app and arm; the clock starts when its task opens (or right away for Other).
-    func launch(_ app: FocusApp) {
-        let ids: [FocusApp: String] = [.hackerSolve: "com.aniketnamjoshi.hackersolve", .speakFit: "com.aniketnamjoshi.speakfit", .northstar: "com.aniket.northstar.viewer"]
-        if let id = ids[app] {
-            if let running = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == id }) { running.unhide(); running.activate() }
-            else if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
-                NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+    /// Launcher: open the profile's app or site. Contract apps arm (their task start starts the clock);
+    /// other apps start at once; websites start when one of their pages is in front; Other asks for the task.
+    func launch(_ p: Profile) {
+        switch p.kind {
+        case .other: beginField(.otherTask); return
+        case .app:
+            if let id = p.appID {
+                if let running = NSWorkspace.shared.runningApplications.first(where: { p.isTarget($0.bundleIdentifier ?? "") }) { running.unhide(); running.activate() }
+                else if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
+                    NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+                }
+            }
+        case .website:
+            if let d = p.domains.first, let url = URL(string: "https://" + d) {
+                if let b = p.browsers.first, let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: b) {
+                    NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+                } else { NSWorkspace.shared.open(url) }
             }
         }
-        state.phase = state.phase == .dayDone ? .dayDone : .idle
-        arm(app)
-    }
-
-    func runningStudyApp() -> FocusApp? {
-        let front = NSWorkspace.shared.frontmostApplication.flatMap { Policy.focusApp(bundleID: $0.bundleIdentifier) }
-        return front ?? NSWorkspace.shared.runningApplications.lazy.compactMap { Policy.focusApp(bundleID: $0.bundleIdentifier) }.first
+        if state.phase != .dayDone { state.phase = .idle }
+        arm(p)
+        if p.kind == .app && p.contractApp == nil { start(p) }
     }
 
     // MARK: guard (DESIGN.md section 5)
@@ -423,8 +478,7 @@ import PomodoroCore
     let hideOnly = ProcessInfo.processInfo.environment["POMODORO_HIDE_ONLY"].map { Set($0.split(separator: ",").map(String.init)) }
 
     func mayFront(_ app: NSRunningApplication) -> Bool {
-        let verdict = Policy.mayFront(bundleID: app.bundleIdentifier, bundlePath: app.bundleURL?.path, isRegular: app.activationPolicy == .regular,
-                                      isSelf: app.processIdentifier == me, session: state.app)
+        let verdict = Policy.mayFront(frontInfo(app), profile: current, contractTargets: contractTargets)
         if !verdict, let only = hideOnly, !only.contains(app.bundleIdentifier ?? "") {
             store.log(["type": "would-hide", "blocked": app.bundleIdentifier ?? "?"]); return true
         }
@@ -441,16 +495,21 @@ import PomodoroCore
         }
         if !names.isEmpty {
             store.log(["type": "hid-at-start", "apps": names.joined(separator: ", "), "at": iso(Date())])
-            db.event("hid-at-start", app: state.app?.rawValue, detail: names.joined(separator: ", "), at: Date())
+            db.event("hid-at-start", app: state.app, detail: names.joined(separator: ", "), at: Date())
         }
     }
 
     func activated(_ app: NSRunningApplication) {
         // A study app came forward: arm when idle; during a session it is always allowed (the task follows
         // the app's own start event).
-        if let a = Policy.focusApp(bundleID: app.bundleIdentifier) {
+        if let a = profileFor(bundleID: app.bundleIdentifier) {
             if [.idle, .armed, .dayDone].contains(state.phase) { arm(a) }
-            return
+            // switching to another reporting app mid-session moves the session there, title cleared until it reports
+            if state.phase == .focus, a.contractApp != nil, state.app != a.id {
+                recordSegment(completed: false, Date()); state.task = nil; state.taskId = nil
+                state.retag(app: a.id, name: a.name, task: nil, taskId: nil); onChange()
+            }
+            if a.contractApp != nil { return }   // contract apps are never hidden; others go through the guard below
         }
         guard Policy.isGuarding(state), !mayFront(app) else { return }
         // Hiding inside the activation itself is undone by macOS (checked 23 Oct 2026), and hide()
@@ -471,8 +530,8 @@ import PomodoroCore
         let name = app.localizedName ?? "That"
         let first = state.phase == .breakTime ? "Break time: stand up instead." : "Not now. \(taskLabel) first."
         say("\(name) is hidden. \(first)", for: 4)
-        store.log(["type": "nudge", "blocked": app.bundleIdentifier ?? name, "app": state.app?.rawValue ?? "", "at": iso(Date())])
-        db.event("hidden", app: state.app?.rawValue, detail: app.bundleIdentifier, at: Date())
+        store.log(["type": "nudge", "blocked": app.bundleIdentifier ?? name, "app": state.app ?? "", "at": iso(Date())])
+        db.event("hidden", app: state.app, detail: app.bundleIdentifier, at: Date())
         onChange()
     }
 
@@ -485,19 +544,21 @@ import PomodoroCore
         nc.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { n in
             let id = (n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
             MainActor.assumeIsolated {
-                guard let a = Policy.focusApp(bundleID: id) else { return }
+                guard let a = self.profileFor(bundleID: id) else { return }
                 if [.idle, .armed, .dayDone].contains(self.state.phase) { self.arm(a) }
-                else if self.state.phase == .ready { self.say("\(a.title) is open. Tap me to start session \(self.state.done + 1).", for: 8) }
+                else if self.state.phase == .ready { self.say("\(a.name) is open. Tap me to start session \(self.state.done + 1).", for: 8) }
             }
         }
         nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { if self.state.isTimed && !self.state.isPaused { self.togglePause() } }
         }
         // Test copies listen on their own channel (POMODORO_EVENT_NAME), so a test can never retitle a real session.
-        let channel = ProcessInfo.processInfo.environment["POMODORO_EVENT_NAME"] ?? FocusEvent.name
-        DistributedNotificationCenter.default().addObserver(forName: .init(channel), object: nil, queue: .main) { n in
-            let info = n.userInfo
-            MainActor.assumeIsolated { if let e = FocusEvent(userInfo: info) { self.focusEvent(e) } }
+        let channels = ProcessInfo.processInfo.environment["POMODORO_EVENT_NAME"].map { [$0] } ?? [FocusEvent.name, FocusEvent.publicName]
+        for channel in channels {
+            DistributedNotificationCenter.default().addObserver(forName: .init(channel), object: nil, queue: .main) { n in
+                let info = n.userInfo
+                MainActor.assumeIsolated { if let e = FocusEvent(userInfo: info) { self.focusEvent(e) } }
+            }
         }
     }
 
@@ -506,24 +567,34 @@ import PomodoroCore
     func focusEvent(_ e: FocusEvent) {
         let now = Date()
         let taskId = e.extras["taskId"]
-        db.event("contract-\(e.phase.rawValue)", app: e.app.rawValue, detail: e.task, at: now)
+        db.event("contract-\(e.phase.rawValue)", app: e.app, detail: e.task, at: now)
+        guard let p = profileFor(contract: e.app) else { return }   // an app with no profile: logged, not acted on
         switch e.phase {
         case .start:
-            lastActivity[e.app] = now
+            lastActivity[p.id] = now
             switch state.phase {
             case .focus:
-                let changed = state.app != e.app || (!e.task.isEmpty && e.task != state.task)
-                if changed { recordSegment(completed: false, now); state.retag(app: e.app, task: e.task.isEmpty ? nil : e.task, taskId: taskId)
-                    say("\(e.task.isEmpty ? e.app.title : e.task). Same tomato, new task.", for: 4) }
+                let changed = state.app != p.id || (!e.task.isEmpty && e.task != state.task)
+                if changed { recordSegment(completed: false, now); state.retag(app: p.id, name: p.name, task: e.task.isEmpty ? nil : e.task, taskId: taskId)
+                    say("\(e.task.isEmpty ? p.name : e.task). Same tomato, new task.", for: 4) }
             case .breakTime:
                 say("Break first. Tap the ripe tomato when it's ready.", for: 5)
             default:
-                start(e.app, task: e.task.isEmpty ? nil : e.task, taskId: taskId)
+                start(p, task: e.task.isEmpty ? nil : e.task, taskId: taskId)
             }
         case .end:
-            if state.app == e.app, !e.task.isEmpty { say("Nice, \(e.task) done.", for: 4) }
+            if state.app == p.id {
+                if !e.task.isEmpty { say("Nice, \(e.task) done.", for: 4) }
+                if state.phase == .focus { recordSegment(completed: false, now) }
+                state.task = nil; state.taskId = nil          // back to the app's name until the next task starts
+            }
         case .activity:
-            lastActivity[e.app] = now
+            lastActivity[p.id] = now
+            // an activity ping that names its task keeps the label true (e.g. a new lesson opened without a start)
+            if state.phase == .focus, state.app == p.id, !e.task.isEmpty, e.task != state.task {
+                recordSegment(completed: false, now); state.retag(app: p.id, name: p.name, task: e.task, taskId: taskId)
+            }
+            onChange()
             return
         }
         save(); onChange()
@@ -542,7 +613,7 @@ import PomodoroCore
         if fieldMode == .otherTask {
             panel?.resignKey()
             guard !text.isEmpty else { return }
-            start(.other, task: text)
+            start(profile("Other") ?? .other, task: text)
             return
         }
         if !text.isEmpty {
@@ -554,6 +625,7 @@ import PomodoroCore
 
     /// Quit stops everything: state saved (it reopens paused), hidden apps brought back.
     func quitCleanly() {
+        Sound.stopSiren()
         if state.phase == .focus { recordSegment(completed: false, Date()) }
         for pid in hidden { NSRunningApplication(processIdentifier: pid)?.unhide() }
         hidden.removeAll()
@@ -568,8 +640,8 @@ import PomodoroCore
     }
 
     func sessionApp() -> NSRunningApplication? {
-        guard let a = state.app else { return nil }
-        return NSWorkspace.shared.runningApplications.first { Policy.focusApp(bundleID: $0.bundleIdentifier) == a }
+        guard let p = current, p.kind == .app else { return nil }
+        return NSWorkspace.shared.runningApplications.first { p.isTarget($0.bundleIdentifier ?? "") }
     }
 
     // MARK: press, hold, drag

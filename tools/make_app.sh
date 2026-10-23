@@ -15,9 +15,19 @@ OUT=build; APP="$OUT/$NAME.app"
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 swift run pomodoro-check
-swift build -c release --product Pomodoro
+# Universal: Apple silicon and Intel, built separately and fused with lipo (UNIVERSAL=0 skips Intel for quick local builds).
+swift build -c release --product Pomodoro && swift build -c release --product tomo
 BIN="$(swift build -c release --show-bin-path)/Pomodoro"
-cp "$BIN" "$APP/Contents/MacOS/Pomodoro"
+if [ "${UNIVERSAL:-1}" = "1" ]; then
+  swift build -c release --product Pomodoro --triple x86_64-apple-macosx14.0
+  swift build -c release --product tomo --triple x86_64-apple-macosx14.0
+  X86=".build/x86_64-apple-macosx/release"
+  lipo -create "$BIN" "$X86/Pomodoro" -output "$APP/Contents/MacOS/Pomodoro"
+  lipo -create "$(dirname "$BIN")/tomo" "$X86/tomo" -output "$APP/Contents/MacOS/tomo"
+else
+  cp "$BIN" "$APP/Contents/MacOS/Pomodoro"; cp "$(dirname "$BIN")/tomo" "$APP/Contents/MacOS/tomo"
+fi
+lipo -info "$APP/Contents/MacOS/Pomodoro"
 
 # Icon: Tomo drawn by the app itself
 ICONSET=$OUT/Pomodoro.iconset; rm -rf "$ICONSET"; mkdir -p "$ICONSET"
@@ -40,7 +50,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$BUILD</string>
-  <key>LSMinimumSystemVersion</key><string>26.0</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHighResolutionCapable</key><true/>
@@ -51,6 +61,7 @@ PLIST
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 # Same stable identity as SpeakFit and JARVIS, so any permission survives rebuilds.
 IDENTITY=$(security find-identity -v -p codesigning | awk -F'"' '/JARVIS Dev/{print $2; exit}')
+codesign --force --sign "${IDENTITY:--}" --identifier "$ID.tomo" "$APP/Contents/MacOS/tomo"   # helpers are signed before the app
 codesign --force --sign "${IDENTITY:--}" --identifier "$ID" "$APP"
 codesign --verify --strict "$APP"
 

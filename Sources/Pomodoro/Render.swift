@@ -30,7 +30,7 @@ enum Render {
     struct Cell { let label: String; let scene: TomoScene; let time: Double; let bubble: String? }
 
     static func cells(dark: Bool) -> [Cell] {
-        func s(_ m: TomoScene.Mode, _ p: Double = 0, app: FocusApp? = .hackerSolve, n: Int = 2, at: Double = 9, hold: Double = 0,
+        func s(_ m: TomoScene.Mode, _ p: Double = 0, app: String? = "HackerSolve", n: Int = 2, at: Double = 9, hold: Double = 0,
                look: CGVector = .zero) -> TomoScene {
             TomoScene(mode: m, progress: p, phaseT: at, app: app, harvested: n, hold: hold, dark: dark, look: look)
         }
@@ -38,7 +38,7 @@ enum Render {
             Cell(label: "idle (eyes follow cursor)", scene: s(.idle, app: nil, n: 0, look: CGVector(dx: 0.6, dy: -0.3)), time: 1, bubble: "Hi, I'm Tomo. Open a lesson and I'll keep you company."),
             Cell(label: "focus 0:00", scene: s(.focus, 0.0, look: CGVector(dx: 0, dy: 0.6)), time: 1, bubble: "HackerSolve, Lesson 4. Let's grow one."),
             Cell(label: "focus 22 min", scene: s(.focus, 22.0 / 45, look: CGVector(dx: 0, dy: 0.6)), time: 2, bubble: nil),
-            Cell(label: "focus 44 min", scene: s(.focus, 44.0 / 45, app: .speakFit, look: CGVector(dx: 0, dy: 0.6)), time: 2, bubble: nil),
+            Cell(label: "focus 44 min", scene: s(.focus, 44.0 / 45, app: "SpeakFit", look: CGVector(dx: 0, dy: 0.6)), time: 2, bubble: nil),
             Cell(label: "nudge", scene: s(.nudge, 0.4, look: CGVector(dx: 1, dy: 0)), time: 1, bubble: "Not now. Lesson 4 first."),
             Cell(label: "hmmph", scene: s(.hmmph, 0.4, look: CGVector(dx: -1, dy: 0)), time: 1, bubble: "Hmmph. That's not Lesson 4."),
             Cell(label: "simmer", scene: s(.simmer, 0.4), time: 1, bubble: "Still off track..."),

@@ -5,9 +5,10 @@ import Foundation
 /// (~80 ms), rising contours when happy or curious, falling when grumpy or sleepy, a little different every play.
 /// Pitch follows mood the way Animal Crossing's Animalese does: happy sounds higher, cross sounds lower.
 extension Sound {
-    enum Palette: String, CaseIterable { case voice, boops, juicy }
+    enum Palette: String, CaseIterable { case mix, voice, boops, juicy }
 
-    static var palette: Palette? { UserDefaults.standard.string(forKey: "soundPalette").flatMap(Palette.init(rawValue:)) }
+    /// Default: the mix (A babble voice for feelings + C juicy foley for physical moments).
+    static var palette: Palette? { Palette(rawValue: UserDefaults.standard.string(forKey: "soundPalette") ?? "mix") }
 
     /// Vowel mouth shapes (first two formants), raised about 25% for a small creature's shorter "mouth".
     static let vowels: [(f1: Double, f2: Double)] = [(1000, 1500), (620, 2350), (400, 2800), (620, 1100), (440, 1000)]
@@ -54,6 +55,14 @@ extension Sound {
     }
 
     static func render(_ cue: Cue, palette: Palette, seed: UInt64) -> [Float] {
+        if palette == .mix && cue != .inhale && cue != .exhale {
+            // the voice says how Tomo feels; the juice says what physically happens, a touch quieter underneath
+            let a = render(cue, palette: .voice, seed: seed), c = render(cue, palette: .juicy, seed: seed &+ 77)
+            var out = [Float](repeating: 0, count: max(a.count, c.count))
+            for i in a.indices { out[i] += a[i] }
+            for i in c.indices { out[i] += 0.6 * c[i] }
+            return finish(out, peak: 0.5)
+        }
         var rng = RNG(s: seed)
         let p = rng.range(0.96, 1.04)
         var out = [Float](repeating: 0, count: Int(rate * 2))
@@ -66,6 +75,7 @@ extension Sound {
         case (.voice, .hmmph):
             voice(&out, at: 0, dur: 0.22, pitch: { base * 0.72 * (1 - 0.15 * $0) }, formants: nasal, breath: 0.1, amp: 0.6, rng: &rng)
             voice(&out, at: 0.25, dur: 0.12, pitch: { _ in base * 0.62 }, formants: nasal, breath: 0.25, amp: 0.5, rng: &rng)          // "hm-mph"
+        case (.voice, .simmer): voice(&out, at: 0, dur: 0.5, pitch: { base * 0.55 * (1 + 0.12 * sin($0 * 9)) }, formants: [(500, 5, 1), (900, 7, 0.4)], breath: 0.3, amp: 0.5, rng: &rng)  // "grrr"
         case (.voice, .boil): babble(&out, at: 0, syllables: 8, base: base * 0.7, contour: { 1 + 0.1 * sin($0 * 12) }, gap: 0.01, len: 0.05...0.07, amp: 0.55, rng: &rng)
         case (.voice, .siren):
             for i in 0..<4 { voice(&out, at: Double(i) * 0.36, dur: 0.33, pitch: { _ in base * (i % 2 == 0 ? 1.25 : 0.95) }, formants: [(400, 6, 1), (2400, 9, 0.4)], breath: 0.08, amp: 0.55, rng: &rng) }
@@ -83,6 +93,7 @@ extension Sound {
         case (.boops, .start): for (i, s) in [0, 2, 4].enumerated() { boop(&out, at: Double(i) * 0.09, f: note(s) * p) }
         case (.boops, .nudge): boop(&out, at: 0, f: note(2) * p); boop(&out, at: 0.12, f: note(4) * p * 1.03, dur: 0.3)
         case (.boops, .hmmph): boop(&out, at: 0, f: note(-2) * p, dur: 0.18); boop(&out, at: 0.16, f: note(-4) * p, dur: 0.3)
+        case (.boops, .simmer): for i in 0..<4 { boop(&out, at: Double(i) * 0.14, f: note(-4 + (i % 2)) * p, dur: 0.16, amp: 0.4) }
         case (.boops, .boil): for i in 0..<10 { boop(&out, at: Double(i) * 0.08, f: note(-5 + (i % 3)) * p * rng.range(0.97, 1.03), dur: 0.12, amp: 0.45) }
         case (.boops, .siren): for i in 0..<4 { boop(&out, at: Double(i) * 0.36, f: note(i % 2 == 0 ? 7 : 4) * p, dur: 0.34) }
         case (.boops, .splash): for i in 0..<6 { boop(&out, at: Double(i) * 0.06, f: note(9 - i * 2) * p, dur: 0.16, amp: 0.4) }
@@ -96,6 +107,7 @@ extension Sound {
         case (.juicy, .nudge): squelch(&out, at: 0, dur: 0.18, from: 600 * p, to: 1500 * p, amp: 1.4, rng: &rng)       // a rising squish: "hm?"
         case (.juicy, .hmmph): squelch(&out, at: 0, dur: 0.26, from: 900 * p, to: 260, amp: 1.6, rng: &rng)            // a sulky low squelch
             bubble(&out, at: 0.24, f0: 300, tau: 0.05, amp: 0.4)
+        case (.juicy, .simmer): for _ in 0..<8 { juicyPop(&out, at: rng.range(0, 0.9), f: rng.range(240, 420) * p, amp: rng.range(0.2, 0.35), rng: &rng) }
         case (.juicy, .boil): for _ in 0..<22 { juicyPop(&out, at: rng.range(0, 1.2), f: rng.range(280, 620) * p, amp: rng.range(0.25, 0.45), rng: &rng) }
         case (.juicy, .siren): for i in 0..<4 { squelch(&out, at: Double(i) * 0.36, dur: 0.32, from: i % 2 == 0 ? 900 : 1500, to: i % 2 == 0 ? 1500 : 900, amp: 1.4, rng: &rng) }
         case (.juicy, .splash): return render(.splash, seed: seed)
@@ -103,6 +115,7 @@ extension Sound {
         case (.juicy, .celebrate): for i in 0..<8 { juicyPop(&out, at: Double(i) * 0.09, f: (500 + Double(i) * 90) * p, amp: 0.45, rng: &rng) }
         case (.juicy, .park): rustle(&out, at: 0, dur: 0.25, amp: 0.3, rng: &rng); juicyPop(&out, at: 0.12, f: 700 * p, amp: 0.35, rng: &rng)
 
+        case (.mix, _): return []
         // breath cues stay the same soft air in every palette
         case (_, .inhale), (_, .exhale): return render(cue, seed: seed)
         }
@@ -111,7 +124,7 @@ extension Sound {
 
     /// `Pomodoro --reels <dir>`: one demo reel per palette, the same moments in the same order.
     static func reels(to dir: URL) {
-        let order: [Cue] = [.start, .nudge, .hmmph, .boil, .siren, .splash, .ripe, .celebrate, .park]
+        let order: [Cue] = [.start, .nudge, .hmmph, .simmer, .boil, .splash, .ripe, .celebrate, .park]
         for pal in Palette.allCases {
             var reel: [Float] = []
             for (i, c) in order.enumerated() {
@@ -120,7 +133,8 @@ extension Sound {
                     reel += [Float](repeating: 0, count: Int(rate * (take == 0 ? 0.35 : 0.9)))
                 }
             }
-            try? wav(reel).write(to: dir.appendingPathComponent("reel-\(["voice": "A-babble-voice", "boops": "B-musical-boops", "juicy": "C-juicy-foley"][pal.rawValue]!).wav"))
+            reel += sirenLoop() + sirenLoop()   // the siren loops seamlessly in every palette
+            try? wav(reel).write(to: dir.appendingPathComponent("reel-\(["mix": "AC-mix", "voice": "A-babble-voice", "boops": "B-musical-boops", "juicy": "C-juicy-foley"][pal.rawValue]!).wav"))
         }
     }
 }
