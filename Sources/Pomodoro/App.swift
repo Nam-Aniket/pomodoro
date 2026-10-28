@@ -19,6 +19,17 @@ final class LauncherPanel: NSPanel {
     override func resignKey() { super.resignKey(); onResign?() }
 }
 
+/// Bring a page window to the front and make it key. Tomo's app is almost never the active one, and since
+/// macOS 14 `activate()` is only a request the front app may refuse: then the window opened behind it and the
+/// click looked dead (28 Oct: "when I click on profiles or analytics, it doesn't always work"; 6 of 8 test
+/// opens landed hidden). Forcing the activation and ordering the window front regardless covers both cases.
+@MainActor func present(_ w: NSWindow?) {
+    guard let w else { return }
+    NSApp.activate(ignoringOtherApps: true)
+    w.makeKeyAndOrderFront(nil)
+    w.orderFrontRegardless()
+}
+
 /// Tomo's app is never the active one, and AppKit swallows the first click on an inactive window
 /// unless the view opts in. Without this, taps and holds did nothing (found in the 23 Oct live run).
 final class FirstMouseHost<Content: View>: NSHostingView<Content> {
@@ -129,8 +140,7 @@ final class SearchWindow: NSObject, WKNavigationDelegate {
     }
 
     func show() {
-        NSApp.activate()
-        window.makeKeyAndOrderFront(nil)
+        present(window)
         window.makeFirstResponder(field)
     }
 
@@ -219,6 +229,19 @@ enum HotKeys {
         }
         HotKeys.register(1, key: kVK_ANSI_E) { MainActor.assumeIsolated { self.m.emergencyExit() } }
         HotKeys.register(2, key: kVK_ANSI_I) { MainActor.assumeIsolated { self.panel.orderFrontRegardless(); self.m.beginField(.idea) } }
+        // ponytail: test runs only. POMODORO_OPEN=insights|profiles opens that page while another app is in front
+        // (the launcher's situation) and logs whether it really came forward.
+        if let page = ProcessInfo.processInfo.environment["POMODORO_OPEN"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                if page == "insights" { self.openInsights() } else { self.openProfiles() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    let w = page == "insights" ? self.insightsWindow : self.profilesWindow
+                    self.m.store.log(["type": "open-test", "page": page, "active": "\(NSApp.isActive)", "key": "\(w?.isKeyWindow ?? false)",
+                                      "visible": "\(w?.occlusionState.contains(.visible) ?? false)",
+                                      "front": NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?"])
+                }
+            }
+        }
     }
 
     func applicationWillTerminate(_ n: Notification) { m.quitCleanly() }
@@ -273,7 +296,7 @@ enum HotKeys {
             updateWindow = pageWindow("Update", NSSize(width: 480, height: 520), min: NSSize(width: 440, height: 420),
                                       UpdateView(m: m, close: { [weak self] in self?.updateWindow?.close() }))
         }
-        NSApp.activate(); updateWindow?.makeKeyAndOrderFront(nil)
+        present(updateWindow)
     }
     @objc func checkForUpdates() { Task { await Updater.check(m, manual: true) } }
 
@@ -282,7 +305,7 @@ enum HotKeys {
         if helpWindow?.contentView == nil {
             helpWindow = pageWindow("Shortcuts & Help", NSSize(width: 520, height: 640), min: NSSize(width: 460, height: 520), HelpView(m: m))
         }
-        NSApp.activate(); helpWindow?.makeKeyAndOrderFront(nil)
+        present(helpWindow)
     }
 
     var settingsWindow: NSWindow?
@@ -290,7 +313,7 @@ enum HotKeys {
         if settingsWindow?.contentView == nil {
             settingsWindow = pageWindow("Pomodoro Settings", NSSize(width: 460, height: 560), min: NSSize(width: 420, height: 480), SettingsView(m: m, openHelp: { [weak self] in self?.openHelp() }))
         }
-        NSApp.activate(); settingsWindow?.makeKeyAndOrderFront(nil)
+        present(settingsWindow)
     }
 
     func refreshStatus() {
@@ -364,7 +387,7 @@ enum HotKeys {
         if profilesWindow?.contentView == nil {
             profilesWindow = pageWindow("Focus profiles", NSSize(width: 820, height: 600), min: NSSize(width: 720, height: 520), ProfilesView(m: m, firstRun: firstRun))
         }
-        NSApp.activate(); profilesWindow?.makeKeyAndOrderFront(nil)
+        present(profilesWindow)
     }
 
     var insightsWindow: NSWindow?
@@ -372,7 +395,7 @@ enum HotKeys {
         if insightsWindow?.contentView == nil {
             insightsWindow = pageWindow("Pomodoro Insights", NSSize(width: 860, height: 760), min: NSSize(width: 760, height: 640), InsightsView(db: m.db, store: m.store))
         }
-        NSApp.activate(); insightsWindow?.makeKeyAndOrderFront(nil)
+        present(insightsWindow)
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {

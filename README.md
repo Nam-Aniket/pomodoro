@@ -42,7 +42,7 @@ tools/make_app.sh
 ## Use
 
 - **First launch:** pick what you want to focus on. Any app works (VS Code, Notion, Figma...). Pick a **browser** and you can add links instead: paste `github.com/you/repo` and every GitHub page counts, anything else is off track. Tick the few apps allowed to stay open, set a default length, and **Save profile**.
-- **Just start working.** Ten seconds of real use of a profile's app starts tracking at that profile's last length. Or **tap Tomo** to pick a profile, or *Other* with a typed task, and twist the tomato timer: 5 to 60 minutes.
+- **Tap Tomo to start.** Opening a profile's app never starts a session by itself: Tomo offers it, and one tap starts it at that profile's last length. Pick a profile, or *Other* with a typed task, and twist the tomato timer: 5 to 60 minutes.
 - **Only engaged time counts.** Typing, clicking, scrolling, or turning a page (in apps that report progress) keeps the clock going; a window left open untouched does not.
 - **A session belongs to its profile.** Open another study app mid-session and Tomo asks: **Switch** focus, or **Stay**. Nothing starts without you choosing it.
 - **Insights** (⌘I): active time, tomatoes, focus quality, per task; today, week, month.

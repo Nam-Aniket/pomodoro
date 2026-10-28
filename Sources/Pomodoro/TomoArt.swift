@@ -652,8 +652,9 @@ enum TomoArt {
     static func breathe(_ ctx: inout GraphicsContext, _ s: TomoScene, _ t: Double) {
         let c = home, r = radius
         let (b, cue) = breath(s.phaseT, s.breathing)
-        // a breath lifts the body from its base a little, more up than out, like a chest (was a 23% balloon)
-        let sx = 1 + 0.04 * b, sy = 1 + 0.06 * b, k = sx
+        // small when empty, big when full, from the base and a little more up than out (26 Oct: 4 to 6% read as
+        // flat; "small to big"). 0.78 to 1.12 fits the 200 x 236 canvas with the stem.
+        let sx = 0.80 + 0.30 * b, sy = 0.78 + 0.34 * b, k = sx
         // fade in from the splash
         var g = ctx; g.opacity = min(1, s.phaseT / 0.8)
         // a soft halo that grows with the breath

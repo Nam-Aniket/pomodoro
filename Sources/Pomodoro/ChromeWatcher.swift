@@ -37,9 +37,7 @@ import PomodoroCore
             if v == .unsure || v == .titleDecides {
                 // the on-device meaning check: distance between the task and the page (search words count as the title)
                 let words = URLComponents(string: url)?.queryItems?.first(where: { $0.name == "q" })?.value ?? title ?? ""
-                let dist = self.embedding?.distance(between: task, and: words) ?? 1
-                // Measured 23 Oct: on-topic pages 0.82 to 0.84, off-topic 0.99 to 1.26.
-                v = dist < 0.92 ? .onTopic : (dist > 1.02 || v == .titleDecides) ? .offTopic : .unsure
+                v = TopicRules.resolve(v, distance: self.embedding?.distance(between: task, and: words) ?? 1, task: task, url: url, title: title ?? "")
             }
             self.verdict = v; self.host = URL(string: url)?.host; self.lastPage = title ?? url
         }

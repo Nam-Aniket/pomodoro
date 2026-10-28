@@ -220,7 +220,7 @@ import PomodoroCore
             return inBreathing ? "Breathe with me · tap to skip" : "\(Int(state.remaining(d) / 60) + 1) min of rest left"
         case .ready: return "Tap to start session \(state.done + 1)"
         case .dayDone: return "Full harvest · \(Int(state.dayActive / 60)) active min today"
-        case .armed: return "\(state.appName ?? "App") is open · starts when you get going"
+        case .armed: return "\(state.appName ?? "App") is open · " + (picked == state.app ? "starts when you get going" : "tap Tomo to start")
         case .idle: return String(format: "%.1f of %d tomatoes today", state.harvest(d), d.perDay)
         }
     }
@@ -271,8 +271,9 @@ import PomodoroCore
     private var interact: (id: String, seconds: Double)?
     var autoStartAllowedAfter = Date.distantPast
     private func autoStart(_ now: Date) {
+        // 26 Oct: only a profile picked in Tomo starts on interaction; opening an app alone never does
         guard [.idle, .armed].contains(state.phase), now >= autoStartAllowedAfter,
-              let p = profileFor(bundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier) else { interact = nil; return }
+              let p = profileFor(bundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier), picked == p.id else { interact = nil; return }
         if interact?.id != p.id { interact = (p.id, 0) }
         guard CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: Self.anyInput) < 1.5 else { return }
         interact!.seconds += 1
@@ -424,9 +425,8 @@ import PomodoroCore
         state.arm(app: p.id, name: p.name)
         guard was != p.id else { onChange(); return }
         if p.kind == .website { say("\(p.name): I'll start when you open it in your browser.", for: 6) }
-        else if picked == p.id || Date() >= autoStartAllowedAfter {
-            say("\(p.name) is open. I'll start tracking once you get going (\(picked == p.id ? (nextMinutes ?? lastMinutes(p)) : lastMinutes(p)) min).", for: 6)
-        } else { say("\(p.name) is open. Tap me when you want to start.", for: 6) }
+        else if picked == p.id { say("\(p.name) is open. I'll start tracking once you get going (\(nextMinutes ?? lastMinutes(p)) min).", for: 6) }
+        else { say("\(p.name) is open. Tap me to start (\(lastMinutes(p)) min).", for: 6) }
         onChange()
     }
 
@@ -704,7 +704,7 @@ import PomodoroCore
         case .start:
             lastActivity[p.id] = now; lastReported[p.id] = now
             let task = e.task.isEmpty ? nil : e.task
-            switch Policy.contractStart(phase: state.phase, picked: picked, profile: p.id, session: state.app, autoStart: now >= autoStartAllowedAfter) {
+            switch Policy.contractStart(phase: state.phase, picked: picked, profile: p.id, session: state.app) {
             case .retag:
                 let changed = state.app != p.id || (task != nil && task != state.task)
                 if changed { recordSegment(completed: false, now); state.retag(app: p.id, name: p.name, task: task, taskId: taskId)
@@ -716,11 +716,12 @@ import PomodoroCore
             case .start:
                 start(p, task: task, taskId: taskId)
             case .ask:
-                // nothing picked: show the picker pre-filled with this app and wait for one tap
+                // nothing picked: show the picker pre-filled with this app and wait for one tap; once per app,
+                // not on every job the Viewer opens (the latest task is kept for the tap)
+                let asked = pending?.profile == p.id
                 pending = (p.id, task, taskId)
                 arm(p)
-                say("\(p.name) is open. Pick a length, then Start.", for: 8)
-                showLauncher?()
+                if !asked { say("\(p.name) is open. Pick a length, then Start.", for: 8); showLauncher?() }
             }
         case .end:
             if state.app == p.id {

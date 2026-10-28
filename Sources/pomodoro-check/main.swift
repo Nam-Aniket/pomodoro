@@ -160,8 +160,7 @@ do {
     check(Policy.contractStart(phase: .armed, picked: "SpeakFit", profile: "HackerSolve") == .ask, "a pick for another app does not start this one")
     check(Policy.contractStart(phase: .ready, picked: nil, profile: "HackerSolve") == .ask, "after a break, waits for a tap")
     check(Policy.contractStart(phase: .dayDone, picked: nil, profile: "HackerSolve") == .ask, "day done: asks")
-    check(Policy.contractStart(phase: .idle, picked: nil, profile: "NorthstarViewer", autoStart: true) == .start, "a task opening starts tracking when auto-start is allowed")
-    check(Policy.contractStart(phase: .ready, picked: nil, profile: "HackerSolve", autoStart: true) == .ask, "after a break it still waits for a tap")
+    check(Policy.contractStart(phase: .idle, picked: nil, profile: "NorthstarViewer") == .ask, "26 Oct: opening a job in Northstar asks, never starts")
     check(Ladder.isEngaged(inputIdle: 5, sinceProgress: nil) && !Ladder.isEngaged(inputIdle: 45, sinceProgress: nil), "active needs input in the last 20 s")
     check(Ladder.isEngaged(inputIdle: 300, sinceProgress: 90) && !Ladder.isEngaged(inputIdle: 300, sinceProgress: 200), "or a page turned in the last 2 min")
     check(Ladder.isWorking(inputIdle: 45, sinceProgress: nil), "but 45 s without input is not yet scolded")
@@ -244,6 +243,18 @@ do {
     check(T.judge(url: "https://www.youtube.com/watch?v=1", app: "Other") == .titleDecides, "YouTube: the title decides")
     check(T.judge(url: "https://notx.com/", app: "Other") == .unsure, "look-alike host not matched")
     check(T.judge(url: "https://www.google.com/search?q=kafka", app: "Other") == .unsure, "searches go to the meaning check")
+    // 26 Oct live bug: Chrome allowed in Northstar, the employer's careers page (distance 1.27) still drew "go back".
+    // The sentence model scores that page further off than cat videos (1.12), so an unknown page is never off topic.
+    check(T.resolve(.unsure, distance: 1.27) == .unsure, "unknown page far in meaning: not scolded")
+    check(T.resolve(.unsure, distance: 0.67) == .onTopic, "unknown page close in meaning: on topic")
+    check(T.resolve(.titleDecides, distance: 1.12) == .offTopic && T.resolve(.titleDecides, distance: 0.8) == .onTopic, "video: the title still decides")
+    // the exact live case: the employer's job page, tab "Data Scientist with ref. 1766...", distance 1.107
+    let job = "https://acme.example/job/data-scientist-1001"
+    check(T.resolve(T.judge(url: job, app: "NorthstarViewer"), distance: 1.107, task: "Reviewing Data Scientist at Acme", url: job, title: "Data Scientist with ref. 1766") == .onTopic, "employer's own job page is on topic")
+    check(T.mentionsCompany(task: "Reviewing Fabric Engineer at Northwind Data", url: "https://x.com/", title: "Fabric Engineer | Northwind Data"), "company in the title")
+    check(!T.mentionsCompany(task: "Reviewing Data Scientist at Acme", url: "https://www.youtube.com/watch?v=1", title: "Funny cats"), "other sites don't match")
+    check(T.resolve(.offTopic, distance: 2, task: "Reviewing Analyst at Netflix", url: "https://www.netflix.com/browse", title: "Netflix") == .offTopic, "the distraction list still wins over a company match")
+    check(T.resolve(.offTopic, distance: 0.5) == .offTopic && T.resolve(.onTopic, distance: 2) == .onTopic, "rule verdicts stand")
 }
 
 // SQLite session store.

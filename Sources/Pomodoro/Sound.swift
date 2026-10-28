@@ -99,7 +99,8 @@ enum Sound {
     struct Biquad {
         var b0 = 0.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0, x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0
         init(bandpass f: Double, q: Double) { set(bandpass: f, q: q) }
-        init(lowpass f: Double, q: Double = 0.707) {
+        init(lowpass f: Double, q: Double = 0.707) { set(lowpass: f, q: q) }
+        mutating func set(lowpass f: Double, q: Double = 0.707) {
             let w = 2 * .pi * f / Sound.rate, al = sin(w) / (2 * q), a0 = 1 + al
             b0 = (1 - cos(w)) / 2 / a0; b1 = (1 - cos(w)) / a0; b2 = b0; a1 = -2 * cos(w) / a0; a2 = (1 - al) / a0
         }
@@ -187,8 +188,8 @@ enum Sound {
 
     static let nasal: [(f: Double, q: Double, g: Double)] = [(260, 5, 1), (1050, 9, 0.18), (2600, 10, 0.05)]
 
-    /// Breath sounds fit the 6 s cyclic sigh: in (with its top-up) 2.4 s, out 3.4 s.
-    static func breathLength(_ cue: Cue) -> Double { cue == .inhale ? 2.4 : cue == .exhale ? 3.4 : 0 }
+    /// Breath sounds fit the 6 s cyclic sigh (TomoArt.breath): in 1.8 s plus a 0.7 s top-up, out 3.5 s.
+    static func breathLength(_ cue: Cue) -> Double { cue == .inhale ? 2.5 : cue == .exhale ? 3.4 : 0 }
 
     static func render(_ cue: Cue, seed: UInt64) -> [Float] {
         var rng = RNG(s: seed)
@@ -245,16 +246,31 @@ enum Sound {
             bubble(&out, at: 0, f0: 1900 * p, tau: 0.006, amp: 0.5)
             squelch(&out, at: 0, dur: 0.012, from: 3000, to: 2400, amp: 0.6, rng: &rng)
             return finish(Array(out.prefix(Int(rate * 0.05))), peak: 0.22)
-        case .inhale, .exhale:
-            // soft breath: airy noise whose brightness rises on the way in and falls on the way out
-            let dur = breathLength(cue)
-            var lp = Biquad(lowpass: 600)
+        case .inhale:
+            // in through the nose (26 Oct: "proper breathing sound inhale and exhale"): a bright, narrow hiss that
+            // rises in pitch as the lungs fill, then a short sharper sniff for the top-up, matching the motion
+            var bp = Biquad(bandpass: 1800, q: 1.4)
+            for j in 0..<Int(2.5 * rate) {
+                let t = Double(j) / rate
+                let (a, f) = t < 1.75 ? (env(t, 1.75, attack: 0.35, release: 0.25), 1500 + 900 * t / 1.75)
+                                      : (1.15 * env(t - 1.8, 0.65, attack: 0.06, release: 0.3), 2600.0)
+                if j % 64 == 0 { bp.set(bandpass: f, q: 1.4) }
+                out[j] += Float(a * bp.run(rng.next() * 2 - 1))
+            }
+            return finish(out, peak: 0.3)
+        case .exhale:
+            // out through the mouth: a long, low, breathy "haaah" (noise through an "ah" mouth shape), loud at once
+            // and fading as the air runs out, its brightness falling with it
+            var f1 = Biquad(bandpass: 700, q: 3), f2 = Biquad(bandpass: 1150, q: 4), lp = Biquad(lowpass: 1400)
+            let dur = 3.4
             for j in 0..<Int(dur * rate) {
                 let t = Double(j) / rate, k = t / dur
-                if j % 64 == 0 { lp = { var f = Biquad(lowpass: cue == .inhale ? 400 + 1300 * k : 1600 - 1250 * k); f.x1 = lp.x1; f.x2 = lp.x2; f.y1 = lp.y1; f.y2 = lp.y2; return f }() }
-                out[j] += Float(0.5 * lp.run(rng.next() * 2 - 1) * sin(.pi * k))
+                if j % 64 == 0 { lp.set(lowpass: 1400 - 900 * k) }
+                let n = rng.next() * 2 - 1
+                let a = env(t, dur, attack: 0.12, release: 0.6) * (1 - 0.65 * k)
+                out[j] += Float(a * lp.run(f1.run(n) + 0.6 * f2.run(n) + 0.25 * n))
             }
-            return finish(out, peak: 0.16)
+            return finish(out, peak: 0.34)
         case .park:
             rustle(&out, at: 0, dur: 0.3, amp: 0.3, rng: &rng)
             squelch(&out, at: 0.05, dur: 0.1, from: 1200 * p, to: 700, amp: 0.7, rng: &rng)

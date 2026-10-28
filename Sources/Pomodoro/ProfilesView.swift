@@ -133,7 +133,7 @@ struct ProfilesView: View {
                         Text("Twist the leaf, or use the arrow keys. You can change it each time in the launcher.")
                             .font(T.callout()).foregroundStyle(T.ink2).fixedSize(horizontal: false, vertical: true)
                         if p.wrappedValue.contractApp != nil {
-                            Text("This app reports its own tasks, so the clock starts when you open one in it.")
+                            Text("This app reports its own tasks: once you start it in Tomo, the clock follows the task you open in it.")
                                 .font(T.caption()).foregroundStyle(T.leaf).fixedSize(horizontal: false, vertical: true)
                         }
                     }

@@ -18,14 +18,13 @@ public enum Policy {
     /// A session never starts silently: only a profile picked in the launcher starts on its app's start.
     /// Mid-session, only the session's own app may retitle it; another app's start is logged and ignored.
     public enum StartAction: Equatable, Sendable { case start, retag, ignore, waitForBreak, ask }
-    /// 24 Oct: "rather if it starts when we are interacting with app": a task opening in a profile's app starts the
-    /// clock at that profile's last length (`autoStart`), except right after an emergency exit (the 45-minute
-    /// incident), after a break (it waits for a tap) and on a finished day; then Tomo asks instead.
-    public static func contractStart(phase: Phase, picked: String?, profile: String, session: String? = nil, autoStart: Bool = false) -> StartAction {
+    /// 26 Oct, reversing 24 Oct's start-on-interaction: "It still starts automatically once i open northstar";
+    /// he chose "Ask, one tap starts". Opening an app or a task in it only starts the clock if that profile was
+    /// picked in Tomo; otherwise Tomo asks.
+    public static func contractStart(phase: Phase, picked: String?, profile: String, session: String? = nil) -> StartAction {
         switch phase {
         case .focus: return session == profile ? .retag : .ignore
         case .breakTime: return .waitForBreak
-        case .idle, .armed: return picked == profile || autoStart ? .start : .ask
         default: return picked == profile ? .start : .ask
         }
     }
@@ -180,5 +179,29 @@ public enum TopicRules {
         if matches(titleDecides) { return .titleDecides }
         if url.hasPrefix("chrome://") || url.hasPrefix("about:") { return .onTopic }   // a new tab, settings
         return .unsure
+    }
+
+    /// The rule verdict combined with the on-device meaning check (sentence distance, task vs page title).
+    /// The distance may only promote an unknown page to on topic: measured 26 Oct, the employer's own careers
+    /// page scores 1.27 and cat videos 1.12, so "far in meaning" is not "off topic". Off topic needs a rule
+    /// (the distraction list) or a video whose title doesn't fit.
+    public static func resolve(_ rule: Verdict, distance: Double, task: String = "", url: String = "", title: String = "") -> Verdict {
+        if rule != .offTopic, mentionsCompany(task: task, url: url, title: title) { return .onTopic }
+        switch rule {
+        case .unsure: return distance < 0.92 ? .onTopic : .unsure
+        case .titleDecides: return distance < 0.92 ? .onTopic : .offTopic
+        case .onTopic, .offTopic: return rule
+        }
+    }
+
+    /// A page on, or titled with, the task's company is on topic: "Reviewing Data Scientist at Acme" on
+    /// acme.com (26 Oct live bug). The company is what follows the last " at " in the Viewer's task.
+    public static func mentionsCompany(task: String, url: String, title: String) -> Bool {
+        guard let r = task.range(of: " at ", options: .backwards) else { return false }
+        let company = task[r.upperBound...].lowercased()
+        let squashed = company.filter { $0.isLetter || $0.isNumber }
+        guard squashed.count >= 3 else { return false }
+        let host = (URL(string: url)?.host ?? "").lowercased().filter { $0.isLetter || $0.isNumber || $0 == "." }
+        return host.replacingOccurrences(of: ".", with: "").contains(squashed) || title.lowercased().contains(company)
     }
 }
